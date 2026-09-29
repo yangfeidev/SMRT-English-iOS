@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# WorkBuddy 工作区数据
+.workbuddy/
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcuserdatad/
+
+# Swift Package Manager
+.build/
+Packages/
+
+# CocoaPods
+Pods/
+
+# Playground
+timeline.xctimeline
+playground.xcworkspace

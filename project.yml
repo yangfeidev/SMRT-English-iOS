@@ -1,0 +1,76 @@
+name: SMRT English
+options:
+  bundleIdPrefix: com.yangfei
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+
+targets:
+  SMRT English:
+    type: application
+    platform: iOS
+    sources:
+      - path: SMRT English
+        excludes:
+          - "Vendor"
+      - path: Resources/Assets.xcassets
+    dependencies:
+      - target: Kingfisher
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: SMRT English
+        # 启动屏：米白背景 + 居中书 logo（与登录页品牌视觉一致）
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchLogo
+          UIImageRespectsSafeAreaInsets: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yangfei.smrtenglish
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: X3T54D57W9
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # Kingfisher 8.13 源码 vendor（SMRT English/Vendor/Kingfisher）。
+  # 不走 SPM：本机 xcodebuild 的 SPM 清单沙箱被系统限制（sandbox_apply EPERM），
+  # CLI 无法解析远程包；静态库 target 方式 import Kingfisher 用法不变。
+  Kingfisher:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: SMRT English/Vendor/Kingfisher
+        excludes:
+          - "Info.plist"
+          - "PrivacyInfo.xcprivacy"
+
+  SMRT EnglishUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: "SMRT English"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yangfei.smrtenglish.uitests
+        TEST_TARGET_NAME: "SMRT English"
+        GENERATE_INFOPLIST_FILE: YES
