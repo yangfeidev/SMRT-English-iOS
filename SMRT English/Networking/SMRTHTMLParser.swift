@@ -135,6 +135,7 @@ enum SMRTHTMLParser {
             let end = i + 1 < positions.count ? positions[i + 1] : html.endIndex
             chunks.append(String(html[pos..<end]))
         }
+        var audioURL: URL? = nil
         for chunk in chunks {
             guard chunk.contains("videothumb") else { continue }
             let modalId = firstGroup(##"data-src="#(\d+)""##, chunk)
@@ -165,6 +166,23 @@ enum SMRTHTMLParser {
                 if let src {
                     videoURL = URL(string: decodeEntities(src))
                 }
+                // 视频兜底 1：<video src="..."> 属性直挂（无 <source> 子标签的写法）
+                if videoURL == nil {
+                    videoURL = firstGroup(#"<video[^>]*src="([^"]+)""#, modal)
+                        .flatMap { URL(string: decodeEntities($0)) }
+                }
+                // 视频兜底 2：弹窗区域内任意 .mp4 直链（结构再变也抓得到）
+                if videoURL == nil {
+                    videoURL = firstGroup(#"(https://[^"\s]+?\.mp4[^"\s]*)"#, modal)
+                        .flatMap { URL(string: decodeEntities($0)) }
+                }
+                // 音频兜底：<audio src> 直挂或 <audio><source src>（当前站点暂无音频条目，预留）
+                if videoURL == nil {
+                    audioURL = firstGroup(#"<audio[^>]*src="([^"]+)""#, modal)
+                        .flatMap { URL(string: decodeEntities($0)) }
+                        ?? firstGroup(#"<audio[\s\S]*?<source[^>]*src="([^"]+)""#, modal)
+                            .flatMap { URL(string: decodeEntities($0)) }
+                }
             }
             // 兜底：缩略图 vid 号 = 视频文件名（实测同编号规律）
             if videoURL == nil, let thumb = thumb, thumb.contains("/vid") {
@@ -177,6 +195,7 @@ enum SMRTHTMLParser {
                                     categories: categories,
                                     thumbnailURL: thumb.flatMap(URL.init(string:)),
                                     videoURL: videoURL,
+                                    audioURL: audioURL,
                                     levelPath: levelPath))
         }
         return videos
@@ -294,340 +313,9 @@ enum SMRTHTMLParser {
         return units
     }
 
-    // MARK: - 4. 课时页（内容块流）
+    // MARK: - 4. 课时页
 
-    static func parseLesson(html: String, lessonId: String) -> LessonDetail {
-        let pageTitle = firstGroup(#"<h1 class="page-title">([\s\S]*?)</h1>"#, html).map(stripTags) ?? ""
-        let siblings = parseSiblings(html: html)
-        let content = region(after: "<div id=\"lesson-wrapper\">",
-                             until: "<div id=\"exercise-list\"", in: html)
-        let blocks = parseBlocks(content)
-        let exercises = parseExercises(html: html)
-        return LessonDetail(id: lessonId, title: pageTitle, siblings: siblings,
-                            blocks: blocks, exercises: exercises)
-    }
-
-    /// 练习列表：exercise-list 区的 openBtn（data-ssi + 标题文本 + 请求上下文参数）。
-    /// 页面里有两个 id="exercise-list"：unit-modal 内的空壳（无 openBtn）和
-    /// 真实列表（class 含 exercise-group）；对空壳区域匹配 openBtn 得空集，无副作用。
-    static func parseExercises(html: String) -> [LessonExercise] {
-        let region = self.region(after: "id=\"exercise-list\"", until: "mobile-768px", in: html)
-        guard !region.isEmpty else { return [] }
-        var exercises: [LessonExercise] = []
-        for m in matches(#"<button[^>]*class="openBtn"[^>]*>([\s\S]*?)</button>"#, in: region) {
-            guard let ssi = attr("data-ssi", in: String(m.full)) else { continue }
-            // 按钮内含 material 图标 span（ligature 文本如 keyboard_arrow_right），剥掉再取标题
-            let label = String(m[1] ?? "")
-                .replacingOccurrences(of: #"<span class="ico[^"]*">[\s\S]*?</span>"#,
-                                      with: "", options: .regularExpression)
-            let title = stripTags(label)
-            guard !title.isEmpty else { continue }
-            // 请求上下文参数：官网 JS 用这些 data-* 拼练习 AJAX URL；缺失时
-            // jQuery .attr() 返回 undefined，拼进 URL 是字面 "undefined" —— 保持一致
-            func webAttr(_ name: String) -> String { attr(name, in: String(m.full)) ?? "undefined" }
-            exercises.append(LessonExercise(
-                id: String(ssi),
-                title: title,
-                school: webAttr("data-school"),
-                country: webAttr("data-country"),
-                custom: webAttr("data-custom"),
-                unit: webAttr("data-unit"),
-                answers: webAttr("data-answers"),
-                paid: webAttr("data-paid"),
-                userId: webAttr("data-userid"),
-                resultId: webAttr("data-resultid"),
-                classId: webAttr("data-classid"),
-                assignId: webAttr("data-assignid")
-            ))
-        }
-        return exercises
-    }
-
-    /// 侧边栏课时导航（当前课时所在分组列表，去重）
-    static func parseSiblings(html: String) -> [LessonItem] {
-        let navRegion = region(after: "<div class=\"lesson-columns-wrapper\">",
-                               until: "<div id=\"lesson-content\"", in: html)
-        guard !navRegion.isEmpty else { return [] }
-        var items: [LessonItem] = []
-        var seen = Set<String>()
-        let pattern = #"<a href="/sunshine/lesson/(\d+)/(\d+)"[^>]*class="lesson-link[^"]*"[\s\S]*?<span class="lessonnum">([\s\S]*?)</span>([\s\S]*?)</span>"#
-        for m in matches(pattern, in: navRegion) {
-            guard let cid = m[1], let lid = m[2], let num = m[3], let title = m[4] else { continue }
-            let lidStr = String(lid)
-            guard !seen.contains(lidStr) else { continue }
-            seen.insert(lidStr)
-            items.append(LessonItem(id: lidStr, courseId: String(cid),
-                                    number: stripTags(String(num)),
-                                    title: stripTags(String(title))))
-        }
-        return items
-    }
-
-    /// 内容块顺序扫描
-    static func parseBlocks(_ html: String) -> [LessonBlock] {
-        var blocks: [LessonBlock] = []
-
-        // 视频块成对出现（country_1 iframe + country_2 mp4，标题相同），先收集再合并。
-        // 注意：figcaption 标题级别不固定（iframe 版用 h4、mp4 版可能用 h2，
-        // 如 lesson/1339/13180），个别块甚至没有 figcaption —— 合并条件放宽为
-        // 「标题相同 或 当前块标题为空」，避免配对失败导致 mp4 源整块丢失。
-        var pendingTitle = ""
-        var pendingEmbed: String? = nil
-        var pendingSources: [LessonVideoSource] = []
-        var hasPendingVideo = false
-
-        func flushVideo() {
-            guard hasPendingVideo else { return }
-            if !pendingTitle.isEmpty || !pendingSources.isEmpty || pendingEmbed != nil {
-                blocks.append(.video(title: pendingTitle, sources: pendingSources, embedPath: pendingEmbed))
-            }
-            hasPendingVideo = false
-            pendingTitle = ""
-            pendingEmbed = nil
-            pendingSources = []
-        }
-
-        let tokenRegex = #"<h2[^>]*>[\s\S]*?</h2>|<div class="video">|<div class="js-audio">|<figure class="playaudio">|<div class="reveal|<div class="photo[^"]*">|<div class="row">|<div class="click row">|<div class="write-inline">[\s\S]*?</div>|<div class="draw"[\s\S]*?</div>|<div data-answer="[^"]*" class="sort images">[\s\S]*?</div>|<div class="group">[\s\S]*?</div>|<p[^>]*>[\s\S]*?</p>"#
-        var searchFrom = html.startIndex
-        while let tokenRange = html.range(of: tokenRegex, options: .regularExpression,
-                                          range: searchFrom..<html.endIndex) {
-            let token = String(html[tokenRange])
-
-            if token.hasPrefix("<h2") {
-                let text = stripTags(firstGroup(#"<h2[^>]*>([\s\S]*?)</h2>"#, token) ?? "")
-                if !text.isEmpty {
-                    flushVideo()
-                    blocks.append(.heading(text))
-                }
-                searchFrom = tokenRange.upperBound
-                continue
-            }
-
-            if token == "<div class=\"video\">" {
-                let end = html.range(of: "</figure>", range: tokenRange.upperBound..<html.endIndex)?
-                    .upperBound ?? tokenRange.upperBound
-                let chunk = String(html[tokenRange.upperBound..<end])
-                // 标题级别不固定：h2~h5 都出现过（13180 课时 iframe 版 h4 / mp4 版 h2）
-                let title = stripTags(firstGroup(#"<figcaption>\s*<h[1-6][^>]*>([\s\S]*?)</h[1-6]>"#, chunk) ?? "")
-                let embed = firstGroup(#"<iframe[^>]*src="(/embed/[^"?]+)"#, chunk)
-                var sources: [LessonVideoSource] = []
-                let srcPatternA = #"<source[^>]*type="video/mp4"[^>]*src="([^"]+)"[^>]*>"#
-                let srcPatternB = #"<source[^>]*src="([^"]+)"[^>]*type="video/mp4"[^>]*>"#
-                var srcMatches = matches(srcPatternA, in: chunk)
-                if srcMatches.isEmpty { srcMatches = matches(srcPatternB, in: chunk) }
-                for sm in srcMatches {
-                    if let g = sm[1], let u = URL(string: decodeEntities(String(g))) {
-                        let size = Int(attr("size", in: String(sm.full)) ?? "0") ?? 0
-                        sources.append(LessonVideoSource(url: u, size: size))
-                    }
-                }
-                if hasPendingVideo, title == pendingTitle || title.isEmpty {
-                    // 成对块：合并
-                    pendingSources += sources
-                    if pendingEmbed == nil { pendingEmbed = embed }
-                    if pendingTitle.isEmpty { pendingTitle = title }
-                } else {
-                    flushVideo()
-                    pendingTitle = title
-                    pendingEmbed = embed
-                    pendingSources = sources
-                    hasPendingVideo = true
-                }
-                searchFrom = end
-                continue
-            }
-
-            if token == "<div class=\"js-audio\">" {
-                let end = html.range(of: "</figure>", range: tokenRange.upperBound..<html.endIndex)?
-                    .upperBound ?? tokenRange.upperBound
-                let chunk = String(html[tokenRange.upperBound..<end])
-                let src = firstGroup(#"<source[^>]*src="([^"]+)""#, chunk)
-                    ?? firstGroup(#"<audio[^>]*src="([^"]+)""#, chunk)
-                if let src = src, let u = URL(string: decodeEntities(src)) {
-                    flushVideo()
-                    blocks.append(.audio(title: nil, url: u))
-                }
-                searchFrom = end
-                continue
-            }
-
-            if token == "<figure class=\"playaudio\">" {
-                let end = html.range(of: "</figure>", range: tokenRange.upperBound..<html.endIndex)?
-                    .upperBound ?? tokenRange.upperBound
-                let chunk = String(html[tokenRange.upperBound..<end])
-                let caption = stripTags(firstGroup(#"<figcaption>([\s\S]*?)</figcaption>"#, chunk) ?? "")
-                let img = firstGroup(#"data-src="([^"]+)""#, chunk)
-                let audio = firstGroup(#"<audio[^>]*src="([^"]+)""#, chunk)
-                    ?? firstGroup(#"<source[^>]*src="([^"]+)""#, chunk)
-                flushVideo()
-                blocks.append(.vocabCard(caption: caption,
-                                         imageURL: img.flatMap { URL(string: decodeEntities($0)) },
-                                         audioURL: audio.flatMap { URL(string: decodeEntities($0)) }))
-                searchFrom = end
-                continue
-            }
-
-            // 单图块：<div class="photo full"><figure><img src alt /></figure></div>
-            if token.hasPrefix("<div class=\"photo") {
-                let end = html.range(of: "</figure>", range: tokenRange.upperBound..<html.endIndex)?
-                    .upperBound ?? tokenRange.upperBound
-                let chunk = String(html[tokenRange.upperBound..<end])
-                for im in matches(#"<img[^>]*>"#, in: chunk) {
-                    let tag = String(im.full)
-                    guard let src = attr("src", in: tag),
-                          let u = URL(string: decodeEntities(src)) else { continue }
-                    let alt = stripTags(attr("alt", in: tag) ?? "")
-                    flushVideo()
-                    blocks.append(.image(url: u, caption: alt.isEmpty ? nil : alt))
-                }
-                searchFrom = end
-                continue
-            }
-
-            // 多图行 / 点图活动行：<div class="row"> 或 <div class="click row">（听音选图，无题图）
-            // 含 click/button 卡片 → 点图判对错活动；否则按图片行解析
-            if token == "<div class=\"row\">" || token.hasPrefix("<div class=\"click") {
-                let nextStart = html.range(of: #"<div class="group|<h2|<div class="video|<div class="js-audio|<figure class="playaudio|<div class="reveal|<div class="photo|<div class="write-inline"|<div class="draw"|<div data-answer"#,
-                                           options: .regularExpression,
-                                           range: tokenRange.upperBound..<html.endIndex)?.lowerBound
-                let end = nextStart ?? html.endIndex
-                let chunk = String(html[tokenRange.upperBound..<end])
-
-                if chunk.contains("<div class=\"click") || chunk.contains("figure class=\"button") {
-                    // 课堂活动（可能多个连排）：figure.view 题图开新活动，
-                    // 其后的 figure.button(correct/incorrect) 归属当前活动
-                    var pendingPrompt: URL?
-                    var pendingChoices: [ActivityChoice] = []
-                    func flushActivity() {
-                        if !pendingChoices.isEmpty {
-                            blocks.append(.activity(promptImageURL: pendingPrompt, choices: pendingChoices))
-                        }
-                        pendingChoices = []
-                    }
-                    // 注意：button 分支必须闭合到 </figure>，否则惰性匹配止于开标签，取不到 data-src
-                    let actToken = #"<figure class="view">[\s\S]*?<img[^>]*src="([^"]+)"|<figure class="button ([a-z]+)"[^>]*>[\s\S]*?</figure>"#
-                    for am in matches(actToken, in: chunk) {
-                        if let promptSrc = am[1] {
-                            flushActivity()
-                            pendingPrompt = URL(string: decodeEntities(String(promptSrc)))
-                        } else if let state = am[2] {
-                            let fig = String(am.full)
-                            let src = firstGroup(#"data-src="([^"]+)""#, fig)
-                                ?? firstGroup(#"<img[^>]*src="([^"]+)""#, fig)
-                            pendingChoices.append(ActivityChoice(
-                                imageURL: src.flatMap { URL(string: decodeEntities($0)) },
-                                isCorrect: String(state) == "correct"
-                            ))
-                        }
-                    }
-                    flushActivity()
-                    // 活动行已整体消费，不再走图片行
-                    searchFrom = end
-                    continue
-                }
-
-                var rowImages: [LessonImage] = []
-                for fm in matches(#"<figure[^>]*>([\s\S]*?)</figure>"#, in: chunk) {
-                    let fig = String(fm[1] ?? "")
-                    guard let src = firstGroup(#"<img[^>]*src="([^"]+)""#, fig),
-                          let u = URL(string: decodeEntities(src)) else { continue }
-                    // 图注优先取 figcaption，其次 img alt（官网列内 <p> 与 alt 一致）
-                    let caption = stripTags(firstGroup(#"<figcaption>[\s\S]*?<h[34][^>]*>([\s\S]*?)</h[34]>"#, fig) ?? "")
-                    let alt = stripTags(firstGroup(#"<img[^>]*alt="([^"]*)""#, fig) ?? "")
-                    let cap = caption.isEmpty ? alt : caption
-                    rowImages.append(LessonImage(url: u, caption: cap.isEmpty ? nil : cap))
-                }
-                if !rowImages.isEmpty {
-                    flushVideo()
-                    blocks.append(.imageRow(rowImages))
-                }
-                searchFrom = end
-                continue
-            }
-
-            // 内联填空：<div class="write-inline"><p>Write your name. <span contenteditable>…</span>.</p></div>
-            if token.hasPrefix("<div class=\"write-inline\"") {
-                let pContent = firstGroup(#"<p[^>]*>([\s\S]*?)</p>"#, token) ?? token
-                let editableRange = pContent.range(of: #"<span[^>]*contenteditable[^>]*>[\s\S]*?</span>"#,
-                                                   options: .regularExpression)
-                let before = stripTags(editableRange.map { String(pContent[..<$0.lowerBound]) } ?? pContent)
-                let after = editableRange.map { stripTags(String(pContent[$0.upperBound...])) } ?? ""
-                flushVideo()
-                blocks.append(.writeInline(before: before, after: after))
-                searchFrom = tokenRange.upperBound
-                continue
-            }
-
-            // 描红画板：<div class="draw" data-name="Aa-Zz" data-img="底图"><canvas class="sketchpad">…</div>
-            if token.hasPrefix("<div class=\"draw\"") {
-                let name = stripTags(attr("data-name", in: token) ?? "")
-                let bg = attr("data-img", in: token).flatMap { URL(string: decodeEntities($0)) }
-                flushVideo()
-                blocks.append(.drawBoard(name: name, backgroundImageURL: bg))
-                searchFrom = tokenRange.upperBound
-                continue
-            }
-
-            // 排序活动：<div data-answer="231" class="sort images"><figure id="1">…</figure>…</div>
-            if token.hasPrefix("<div data-answer") && token.contains("class=\"sort") {
-                let answer = attr("data-answer", in: token) ?? ""
-                var items: [SortItem] = []
-                for fm in matches(#"<figure id="([^"]+)">[\s\S]*?</figure>"#, in: token) {
-                    let fig = String(fm.full)
-                    let src = firstGroup(#"data-src="([^"]+)""#, fig)
-                        ?? firstGroup(#"<img[^>]*src="([^"]+)""#, fig)
-                    let alt = stripTags(firstGroup(#"alt="([^"]*)""#, fig) ?? "")
-                    items.append(SortItem(id: String(fm[1] ?? ""),
-                                          imageURL: src.flatMap { URL(string: decodeEntities($0)) },
-                                          alt: alt))
-                }
-                flushVideo()
-                if !items.isEmpty {
-                    blocks.append(.sortActivity(items: items, answer: answer))
-                }
-                searchFrom = tokenRange.upperBound
-                continue
-            }
-
-            if token.hasPrefix("<div class=\"reveal") {
-                let nextStart = html.range(of: #"<div class="reveal|<div class="group|<h2|<div class="video|<div class="js-audio|<figure class="playaudio|<div class="photo|<div class="row|<div class="write-inline"|<div class="draw""#,
-                                           options: .regularExpression,
-                                           range: tokenRange.upperBound..<html.endIndex)?.lowerBound
-                let end = nextStart ?? html.endIndex
-                let chunk = String(html[tokenRange.upperBound..<end])
-                let img = firstGroup(#"data-src="([^"]+)""#, chunk)
-                let texts = matches(#"<div class="box">([\s\S]*?)</div>"#, in: chunk)
-                    .compactMap { $0[1] }
-                    .map { stripTags(String($0)) }
-                    .filter { !$0.isEmpty }
-                flushVideo()
-                blocks.append(.revealCard(imageURL: img.flatMap { URL(string: decodeEntities($0)) },
-                                          texts: texts))
-                searchFrom = end
-                continue
-            }
-
-            if token.hasPrefix("<div class=\"group\">") {
-                let text = stripTags(token)
-                if !text.isEmpty {
-                    flushVideo()
-                    blocks.append(.text(text))
-                }
-                searchFrom = tokenRange.upperBound
-                continue
-            }
-
-            // 普通 <p>
-            let text = stripTags(token)
-            if !text.isEmpty {
-                flushVideo()
-                blocks.append(.text(text))
-            }
-            searchFrom = tokenRange.upperBound
-        }
-        flushVideo()
-        return blocks
-    }
+    // 课时详情已整体改 WebView 加载官网页面，App 不再解析课时页（正文/练习/侧栏均由网页自理）。
 }
 
 // MARK: - String 扩展
@@ -851,81 +539,5 @@ extension SMRTHTMLParser {
         }
         return ClassCourse(className: className, courseName: courseName,
                            courseLibraryId: courseLibraryId, units: units)
-    }
-}
-
-// MARK: - 7. 练习（/sunshine/exercise/{ssi} AJAX 片段）
-//
-// 页面结构（2026-09-29 抓取样本 ssi=4419）：
-//   <form action="/process.php" id="exercise_4419">
-//     <div id="exercise">
-//       <h1 class="page-title">1-1 Alphabet (Aa - Zz)</h1>
-//       <div id="119463" class="question" display-type="group" question-type="6">  ← 题干
-//         <div class="group"><p><span class="number">1)</span> Match the picture to the letter.</p></div>
-//       </div>
-//       <div id="119467" display-type="dropdown" class="question" question-type="2">  ← 下拉子题
-//         <div class="dropdown">
-//           <div class="question-image"><figure><div class="figimg" style="background-image: url('...ex-119467.png')"></div></figure></div>
-//           <div class="question-block"><p><span class="number">a.</span><span class="answer"><select name="q119467">
-//             <option></option><option value="qa235159">Aa</option>...</select></span></p>
-//           <span class="option">Aa</span> ...</div>
-//         </div>
-//       </div> × N
-//     </div>
-//     <input type="hidden" name="exercise_id" value="4419" /> / user_id / status / result_id / assign_results_comment
-//   </form>
-//   提交（站点 JS）：POST /json/exercise_save.php，serialize 整表单；
-//   Submit 时 status=1；Save 响应体为新 result_id。
-//   老师未分享时片段为 <div class="alert info">…No Access…</div>，无 question 块。
-
-extension SMRTHTMLParser {
-
-    /// 解析练习片段。未分享（No Access）或无下拉题时 questions 为空。
-    static func parseExercise(html: String, ssi: String) -> ExerciseData {
-        let title = stripTags(firstGroup(#"<h1 class="page-title">([\s\S]*?)</h1>"#, html) ?? "")
-        let exerciseRegion = region(after: "id=\"exercise\"", until: "</form>", in: html)
-
-        // 题干：display-type="group" 块内的段落文本
-        var instruction = ""
-        if let groupChunk = html.range(of: "display-type=\"group\"") {
-            let tail = String(html[groupChunk.upperBound...])
-            if let end = tail.range(of: "display-type=\"dropdown\"")?.lowerBound {
-                instruction = stripTags(firstGroup(#"<p[^>]*>([\s\S]*?)</p>"#, String(tail[..<end])) ?? "")
-            }
-        }
-
-        // 子题：按完整开标签 <div id="119467" display-type="dropdown" ...> 切块，
-        // 保证块内 id / 题图 / select 同属一题
-        var questions: [ExerciseQuestion] = []
-        let tagPattern = #"<div id="(\d+)" display-type="dropdown""#
-        let tagMatches = matches(tagPattern, in: exerciseRegion)
-        for (i, m) in tagMatches.enumerated() {
-            let start = m.full.startIndex
-            let end = i + 1 < tagMatches.count ? tagMatches[i + 1].full.startIndex : exerciseRegion.endIndex
-            let chunk = String(exerciseRegion[start..<end])
-            guard let qid = m[1] else { continue }
-            let number = stripTags(firstGroup(#"<span class="number">([^<]*)</span>"#, chunk) ?? "")
-            let image = firstGroup(#"class="figimg"[^>]*background-image:\s*url\('([^']+)'\)"#, chunk)
-                .flatMap { URL(string: decodeEntities($0)) }
-            let options = matches(#"<option value="(qa\d+)">([\s\S]*?)</option>"#, in: chunk)
-                .compactMap { m -> ExerciseOption? in
-                    guard let v = m[1], let label = m[2] else { return nil }
-                    return ExerciseOption(value: String(v), label: stripTags(String(label)))
-                }
-            if !options.isEmpty {
-                questions.append(ExerciseQuestion(id: String(qid), number: number, imageURL: image, options: options))
-            }
-        }
-
-        let hidden = ExerciseHidden(
-            exerciseId: firstGroup(#"name="exercise_id" value="([^"]*)""#, html) ?? ssi,
-            userId: firstGroup(#"name="user_id" value="([^"]*)""#, html) ?? "",
-            status: firstGroup(#"name="status" value="([^"]*)""#, html) ?? "0",
-            resultId: firstGroup(#"name="result_id" value="([^"]*)""#, html) ?? "",
-            comment: firstGroup(#"name="assign_results_comment" value="([^"]*)""#, html) ?? ""
-        )
-
-        return ExerciseData(ssi: ssi, title: title, instruction: instruction,
-                            questions: questions, hidden: hidden)
     }
 }

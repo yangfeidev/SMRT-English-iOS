@@ -90,12 +90,14 @@ struct CafeView: View {
                 .onSubmit { commitSearch() }
             if !searchText.isEmpty {
                 Button {
-                    searchText = ""
+                    // 清空输入框：若当前正停在搜索/分类筛选上，同步清除筛选并刷新列表
+                    clearDynamicFilter()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.textSecondary.opacity(0.6))
                 }
+                .accessibilityIdentifier("cafe.search.clear")
             } else {
                 // 无输入时保留「搜索」提交入口，占位对称
                 Button {
@@ -153,27 +155,65 @@ struct CafeView: View {
 
     private func tabButton(_ lv: CafeTab) -> some View {
         let isActive = tab.path == lv.path
-        return Button {
-            guard tab.path != lv.path else { return }
-            tab = lv
-        } label: {
-            HStack(spacing: 5) {
-                Text(lv.title)
-                    .font(.subheadline.weight(isActive ? .bold : .regular))
-                if !CafeTab.levels.contains(where: { $0.path == lv.path }) {
-                    // 动态 Tab（搜索/分类）带关闭按钮
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
+        let isDynamic = !CafeTab.levels.contains(where: { $0.path == lv.path })
+
+        // 固定分级 Tab：整个胶囊一个点击区
+        guard isDynamic else {
+            return AnyView(
+                Button {
+                    guard tab.path != lv.path else { return }
+                    tab = lv
+                } label: {
+                    Text(lv.title)
+                        .font(.subheadline.weight(isActive ? .bold : .regular))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(isActive ? Theme.accent : Theme.card)
+                        .foregroundStyle(isActive ? .white : Theme.textSecondary)
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
                 }
+                .accessibilityIdentifier("cafe.tab.\(lv.title)")
+            )
+        }
+
+        // 动态 Tab（搜索/分类）：文字区 = 切换查看；× 独立点击区 = 清除筛选
+        // （原实现 × 只是标签一部分，点击胶囊任何位置都无法清除）
+        return AnyView(
+            HStack(spacing: 4) {
+                Button {
+                    tab = lv
+                } label: {
+                    Text(lv.title)
+                        .font(.subheadline.weight(.bold))
+                        .padding(.leading, 16)
+                        .padding(.vertical, 8)
+                }
+                .accessibilityIdentifier("cafe.tab.\(lv.title)")
+
+                Button {
+                    clearDynamicFilter()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.trailing, 10)
+                        .padding(.vertical, 8)
+                }
+                .accessibilityIdentifier("cafe.tab.close.\(lv.title)")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
             .background(isActive ? Theme.accent : Theme.card)
             .foregroundStyle(isActive ? .white : Theme.textSecondary)
             .clipShape(Capsule())
             .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
-        }
-        .accessibilityIdentifier("cafe.tab.\(lv.title)")
+        )
+    }
+
+    /// 清除动态筛选（搜索/分类）：回 All 并刷新列表；搜索关键词同步清空
+    private func clearDynamicFilter() {
+        searchText = ""
+        searchFieldFocused = false
+        tab = .all
     }
 
     // MARK: - 内容区

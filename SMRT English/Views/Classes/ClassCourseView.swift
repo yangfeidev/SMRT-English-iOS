@@ -195,17 +195,26 @@ struct ClassCourseView: View {
 
                 Spacer(minLength: 8)
 
-                // 练习/共享状态点（对齐官网 lesson-status）
-                Circle()
-                    .fill(lesson.hasExercises ? Theme.accent
-                          : lesson.status == "Not shared" ? Theme.textSecondary.opacity(0.35)
-                          : Theme.textSecondary.opacity(0.15))
-                    .frame(width: 8, height: 8)
+                // 状态点+文案（来源：官网 lesson-status 的 tippy 文案）。
+                // Complete 高亮：绿色对勾 + 绿字，一眼可辨已完成；
+                // 其余状态（In Progress / Lesson only / Not shared）维持灰色系。
+                if lesson.status.lowercased().contains("complete") {
+                    Label(lesson.status, systemImage: "checkmark.circle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.green)
+                        .labelStyle(.titleAndIcon)
+                } else {
+                    Circle()
+                        .fill(lesson.hasExercises ? Theme.accent
+                              : lesson.status == "Not shared" ? Theme.textSecondary.opacity(0.35)
+                              : Theme.textSecondary.opacity(0.15))
+                        .frame(width: 8, height: 8)
 
-                if !lesson.status.isEmpty {
-                    Text(lesson.status)
-                        .font(.caption2)
-                        .foregroundStyle(Theme.textSecondary)
+                    if !lesson.status.isEmpty {
+                        Text(lesson.status)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -213,10 +222,6 @@ struct ClassCourseView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // 点击瞬间预取：转场期间完成下载+解析，push 进来秒开
-        .simultaneousGesture(TapGesture().onEnded {
-            SMRTClient.shared.prefetchLesson(courseId: lesson.courseId, lessonId: lesson.id)
-        })
     }
 
     // MARK: - 数据

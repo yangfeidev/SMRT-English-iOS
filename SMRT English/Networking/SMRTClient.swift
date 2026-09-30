@@ -35,7 +35,6 @@ enum SMRTError: LocalizedError {
     case loginFailed
     case notLoggedIn
     case parseFailed
-    case exerciseNoAccess
 
     var errorDescription: String? {
         switch self {
@@ -43,7 +42,6 @@ enum SMRTError: LocalizedError {
         case .loginFailed:   return "邮箱或密码错误"
         case .notLoggedIn:   return "登录已过期，请重新登录"
         case .parseFailed:   return "页面解析失败，网站结构可能已变更"
-        case .exerciseNoAccess: return "暂无权限访问该练习（老师可能未分享）"
         }
     }
 }
@@ -58,10 +56,6 @@ final class SMRTClient {
     let schoolKey = "sunshine"
 
     private let session: URLSession
-    /// Cafe 专用游客会话：Cafe 内容公开且无需登录，而服务器对「登录用户」
-    /// 会按账号绑定的分类过滤 Cafe（忽略 URL 分类路径），导致各 Tab 内容相同。
-    /// 实测（2026-09-29）：登录 session 请求 /cafe/adults 也返回 children 内容；
-    /// 游客态则各分类正确区分。因此 Cafe 走独立无 cookie 会话，与网页游客行为一致。
     private let guestSession: URLSession
     /// 最近一次打开的课时页路径（练习 AJAX 的 Referer 用）
     private var lastLessonPath = ""
@@ -149,7 +143,9 @@ final class SMRTClient {
     func checkSession() async -> Bool {
         // 单次请求同时完成"可达性 + 登录态"判断（此前 guard 预检 + 正式请求重复拉了两遍）
         do {
-            let html = try await getHTML(path: "/sunshine/library")
+            // requirePathContains：会话失效时 302 → /smrt/ 营销首页，靠最终路径判定
+            let html = try await getHTML(path: "/sunshine/library",
+                                         requirePathContains: "/sunshine/library")
             return !isLoggedOutHTML(html)
         } catch {
             return false
@@ -222,7 +218,8 @@ final class SMRTClient {
     /// 拉取并缓存当前账号显示名（Me 页 name 字段，西式「名 姓」转中式）。
     /// 任何失败都回退到缓存值，不阻断调用方。
     func refreshMyDisplayName() async -> String? {
-        guard let html = try? await getHTML(path: "/sunshine/me") else { return cachedDisplayName }
+        guard let html = try? await getHTML(path: "/sunshine/me",
+                                            requirePathContains: "/sunshine/me") else { return cachedDisplayName }
         if isLoggedOutHTML(html) { return cachedDisplayName }
         let name = await Task.detached(priority: .utility) {
             SMRTHTMLParser.parseMyDisplayName(html: html)
@@ -240,8 +237,14 @@ final class SMRTClient {
     /// GET 指定路径（可含 query，如 /sunshine/cafe?page=2），返回 HTML 字符串。
     /// 注意：不能用 appendingPathComponent——它会把 "?" 编码成 %3F，必须字符串拼接。
     /// - Parameter asGuest: true 时走游客会话（无登录 cookie），用于 Cafe 公开内容。
-    /// - Parameter extraHeaders: 额外请求头（练习 AJAX 需带 Referer / X-Requested-With 对齐官网）。
-    func getHTML(path: String, asGuest: Bool = false, extraHeaders: [String: String] = [:]) async throws -> String {
+    /// - Parameter requirePathContains: 校验重定向后最终 URL 路径必须包含此片段，
+    ///   否则抛 notLoggedIn。**会话失效的判定关键**：官网在会话被顶掉（如网页端
+    ///   单点登录互踢）或过期时，访问登录态页面会 302 到营销首页 /smrt/（该页
+    ///   无 "Create Account" 标记，isLoggedOutHTML 检测不到），只看内容会误判
+    ///   为「登录有效但数据为空」。
+    /// - Parameter extraHeaders: 额外请求头（对齐官网请求行为时使用）。
+    func getHTML(path: String, asGuest: Bool = false, extraHeaders: [String: String] = [:],
+                 requirePathContains: String? = nil) async throws -> String {
         guard let url = URL(string: baseURL.absoluteString + path) else {
             throw SMRTError.badResponse
         }
@@ -258,9 +261,19 @@ final class SMRTClient {
         if let finalURL = http.url, finalURL.absoluteString != url.absoluteString {
             Self.log.info("redirected → \(finalURL.absoluteString, privacy: .public)")
         }
+        // 被重定向离开原路径 = 会话失效（302 踢到营销首页/登录页）
+        if let requirePathContains, let finalURL = http.url,
+           !finalURL.path.contains(requirePathContains) {
+            throw SMRTError.notLoggedIn
+        }
         if !asGuest { persistCookies() }
         return html
     }
+
+    // MARK: - Cafe
+
+    // Cafe 已整体改 WebView 承载官网页面（游客态、独立 WK 存储由 CafeView 处理），
+    // App 不再解析视频流。
 
     // MARK: - Cafe
 
@@ -316,66 +329,26 @@ final class SMRTClient {
         return units
     }
 
-    // MARK: - 课时预取缓存（会话级：点击课时行瞬间预取，push 后命中秒开）
+    // MARK: - 课时
 
-    private let lessonCacheLock = NSLock()
-    private var lessonCache: [String: LessonDetail] = [:]
-
-    /// 点击课时行时后台预取：转场动画期间完成下载+解析，push 进来直接命中
-    func prefetchLesson(courseId: String, lessonId: String) {
-        guard !hasCachedLesson(lessonId) else { return }
-        Task.detached(priority: .userInitiated) { [weak self] in
-            _ = try? await self?.lesson(courseId: courseId, lessonId: lessonId)
-        }
-    }
-
-    private func hasCachedLesson(_ key: String) -> Bool {
-        lessonCacheLock.lock()
-        defer { lessonCacheLock.unlock() }
-        return lessonCache[key] != nil
-    }
-
-    private func cachedLesson(_ key: String) -> LessonDetail? {
-        lessonCacheLock.lock()
-        defer { lessonCacheLock.unlock() }
-        return lessonCache[key]
-    }
-
-    private func storeLesson(_ detail: LessonDetail, for key: String) {
-        lessonCacheLock.lock()
-        defer { lessonCacheLock.unlock() }
-        lessonCache[key] = detail
-    }
-
-    func lesson(courseId: String, lessonId: String) async throws -> LessonDetail {
-        if let cached = cachedLesson(lessonId) { return cached }
-
-        // 记录最近一次课时页路径：练习 AJAX 请求要带它做 Referer（官网 jQuery .load 行为）
-        lastLessonPath = "/sunshine/lesson/\(courseId)/\(lessonId)"
-        let html = try await getHTML(path: lastLessonPath)
-        // 解析显式丢到后台线程：大页面多轮正则扫描，避免任何潜在的主线程占用
-        let detail = try await Task.detached(priority: .userInitiated) {
-            let parsed = SMRTHTMLParser.parseLesson(html: html, lessonId: lessonId)
-            guard !parsed.blocks.isEmpty else { throw SMRTError.parseFailed }
-            return parsed
-        }.value
-
-        storeLesson(detail, for: lessonId)
-        return detail
-    }
+    // 课时详情已整体改 WebView 加载官网页面（正文/练习/切换均由网页自理），
+    // App 侧不再有课时解析与预取缓存。
 
     // MARK: - Classes（我的班级）
 
     /// 我的班级列表（登录态）。新账号无班级时返回空数组。
     func myClasses() async throws -> [StudentClass] {
-        let html = try await getHTML(path: "/sunshine/classes")
+        // requirePathContains：会话失效时 302 → /smrt/，靠最终路径判定登出
+        let html = try await getHTML(path: "/sunshine/classes",
+                                     requirePathContains: "/sunshine/classes")
         if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
         return SMRTHTMLParser.parseMyClasses(html: html)
     }
 
     /// 班级课程页（Course tab，单元树）
     func classCourse(classId: String) async throws -> ClassCourse {
-        let html = try await getHTML(path: "/sunshine/class/\(classId)/course/")
+        let html = try await getHTML(path: "/sunshine/class/\(classId)/course/",
+                                     requirePathContains: "/sunshine/class/")
         if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
         return try await Task.detached(priority: .userInitiated) {
             let course = SMRTHTMLParser.parseClassCourse(html: html)
@@ -386,78 +359,6 @@ final class SMRTClient {
 
     // MARK: - 练习
 
-    /// 拉取练习内容。URL 构造与官网 JS 完全一致（smrt.ui.global.min.js 的 openBtn 点击处理）：
-    ///   /{school}/exercise/{ssi}?answers=..&custom=..&country=..&unit=..
-    ///   按 openBtn data-* 优先级分支追加：
-    ///     data-userid 有值 → &userid=..&resultid=..&paid=..
-    ///     data-classid 有值 → &classid=..&assignid=..
-    ///     data-resultid 有值 → &resultid=..&paid=..
-    ///     兜底 → &paid=..
-    /// 缺失参数与网页行为一致传字面 "undefined"（登录用户练习走 userid 分支，
-    /// 缺 userid 参数服务端会返回 No Access）。
-    func exercise(_ ex: LessonExercise) async throws -> ExerciseData {
-        let school = (ex.school == "undefined" || ex.school.isEmpty) ? schoolKey : ex.school
-        var link = "/\(school)/exercise/\(ex.id)?answers=\(ex.answers)&custom=\(ex.custom)&country=\(ex.country)&unit=\(ex.unit)"
-        // 官网分支判断是 `typeof attr < "u"`：属性存在即命中（即使值为空）
-        if ex.userId != "undefined" {
-            link += "&userid=\(ex.userId)&resultid=\(ex.resultId)&paid=\(ex.paid)"
-        } else if ex.classId != "undefined" {
-            link += "&classid=\(ex.classId)&assignid=\(ex.assignId)"
-        } else if ex.resultId != "undefined" {
-            link += "&resultid=\(ex.resultId)&paid=\(ex.paid)"
-        } else {
-            link += "&paid=\(ex.paid)"
-        }
-        // 请求头对齐官网 jQuery .load：练习 AJAX 校验来源，缺失返回 No Access
-        var headers = [
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "text/html, */*; q=0.01",
-        ]
-        if !lastLessonPath.isEmpty {
-            headers["Referer"] = baseURL.absoluteString + lastLessonPath
-        }
-        let html = try await getHTML(path: link, extraHeaders: headers)
-        if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
-        // 服务端无权限片段：<div class="alert info"><strong>No Access</strong>…
-        if html.contains("No Access") { throw SMRTError.exerciseNoAccess }
-        return await Task.detached(priority: .userInitiated) {
-            SMRTHTMLParser.parseExercise(html: html, ssi: ex.id)
-        }.value
-    }
-
-    /// 保存/提交练习（对齐官网 JS：POST /json/exercise_save.php，serialize 整表单；
-    /// Submit 时 status=1。Save 响应体为新 result_id。）
-    /// - Returns: 服务端返回的新 result_id
-    @discardableResult
-    func saveExercise(_ data: ExerciseData,
-                      selections: [String: String],
-                      submit: Bool) async throws -> String {
-        var items: [URLQueryItem] = [
-            URLQueryItem(name: "assign_results_comment", value: data.hidden.comment),
-            URLQueryItem(name: "exercise_id", value: data.hidden.exerciseId),
-            URLQueryItem(name: "user_id", value: data.hidden.userId),
-            URLQueryItem(name: "status", value: submit ? "1" : data.hidden.status),
-            URLQueryItem(name: "result_id", value: data.hidden.resultId),
-        ]
-        for (qid, value) in selections {
-            items.append(URLQueryItem(name: "q\(qid)", value: value))
-        }
-        var components = URLComponents()
-        components.queryItems = items
-
-        var request = URLRequest(url: baseURL.appendingPathComponent("json/exercise_save.php"))
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
-
-        let (responseData, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw SMRTError.badResponse
-        }
-        if !data.hidden.resultId.isEmpty {
-            persistCookies()
-        }
-        return String(data: responseData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
+    // 练习的原生解析/作答/提交已整体移除：课时正文改 WebView 加载官网页面后，
+    // 练习直接在网页内完成（官网 JS 自理登录态参数与提交），App 不再参与。
 }

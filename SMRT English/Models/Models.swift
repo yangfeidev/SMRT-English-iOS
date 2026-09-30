@@ -5,14 +5,15 @@
 //  数据模型定义
 //  ============================
 //  本文件定义 App 内全部核心模型：
-//  - CafeVideo       Cafe 视频条目（缩略图/标题/分类/描述/视频地址）
 //  - CafeLevel       Cafe 分级（children/kids/youth/adults）
 //  - LibraryCourse   课程（封面/编号/描述）
 //  - LessonSection   课时分组（如 Conversation and Practice / Reading）
 //  - LessonItem      课时条目（编号 1-1 + 标题 + lessonId）
 //  - CourseUnit      课程单元（My Friends 01，内含多个分组）
-//  - LessonBlock     课时内容块（标题/文本/视频/音频/单词卡/图片/翻卡/练习）
 //  - StudentClass    我的班级（Classes 页，班级名/课程/成员/详情页地址）
+//
+//  课时正文不再原生建模：课时详情内容区为 WebView 加载官网页面，
+//  App 侧仅保留侧栏课时列表（LessonItem）用于顶部导航。
 //
 //  数据来源：smrtenglish.cn 服务端渲染 HTML，由 SMRTHTMLParser 解析填充。
 //
@@ -42,6 +43,8 @@ struct CafeVideo: Identifiable, Hashable {
     let thumbnailURL: URL?
     /// 视频完整 URL（vidXXXX.mp4）
     let videoURL: URL?
+    /// 音频完整 URL（若该条目是音频内容；当前站点暂无，预留兜底）
+    let audioURL: URL?
     /// 所在页面路径（用于区分来自哪个 tab）
     var levelPath: String = "/sunshine/cafe"
 }
@@ -154,103 +157,6 @@ struct CourseUnit: Identifiable, Hashable {
     var id: String { name + number }
 }
 
-// MARK: - Lesson 内容块
-
-/// 课时视频源（多码率）
-struct LessonVideoSource: Hashable {
-    let url: URL
-    /// 240 / 360 / 480 / 720 / 1080
-    let size: Int
-}
-
-/// 多图行内的单张图（官网 row > col4/col6：图 + 图注）
-struct LessonImage: Hashable {
-    let url: URL
-    let caption: String?
-}
-
-/// 课时点图活动的选项图（官网 click 卡片：correct/incorrect 标记，纯前端判对错）
-struct ActivityChoice: Hashable {
-    let imageURL: URL?
-    let isCorrect: Bool
-}
-
-/// 排序活动选项图（官网 sort images：听音后拖拽排序，figure id + 图 + alt 说明）
-struct SortItem: Hashable, Identifiable {
-    /// figure id（如 "1"/"2"/"3"，官网内唯一）
-    let id: String
-    let imageURL: URL?
-    let alt: String
-}
-
-/// 课时页内容块（按页面出现顺序排列）
-enum LessonBlock: Identifiable, Hashable {
-    case heading(String)                       // h2 小节标题
-    case text(String)                          // 说明文本
-    case video(title: String, sources: [LessonVideoSource], embedPath: String?)  // 视频（country_2 直链优先，country_1 iframe 兜底）
-    case audio(title: String?, url: URL)       // 整段音频
-    case vocabCard(caption: String, imageURL: URL?, audioURL: URL?)  // 单词卡（图+发音）
-    case image(url: URL, caption: String?)     // 纯图片（photo 容器）
-    case imageRow([LessonImage])               // 多图行（官网 row：2~3 列并排，图下图注）
-    case revealCard(imageURL: URL?, texts: [String]) // 翻卡（图 + 覆盖文字块）
-    case activity(promptImageURL: URL?, choices: [ActivityChoice])   // 点图判对错活动（row 内 click 卡片）
-    case sortActivity(items: [SortItem], answer: String)             // 排序活动（sort images，answer 为官网正确顺序）
-    case writeInline(before: String, after: String)  // 内联填空（write-inline，contenteditable）
-    case drawBoard(name: String, backgroundImageURL: URL?)  // 描红画板（draw + canvas sketchpad）
-
-    var id: String {
-        switch self {
-        case .heading(let s):            return "h-\(s)-\(hashValue)"
-        case .text(let s):               return "t-\(s)-\(hashValue)"
-        case .video(let t, _, _):        return "v-\(t)-\(hashValue)"
-        case .audio(let t, _):           return "a-\(t ?? "")-\(hashValue)"
-        case .vocabCard(let c, _, _):    return "w-\(c)-\(hashValue)"
-        case .image(_, let c):           return "i-\(c ?? "")-\(hashValue)"
-        case .imageRow:                  return "ir-\(hashValue)"
-        case .revealCard(_, let ts):     return "r-\(ts.joined())-\(hashValue)"
-        case .activity(_, let cs):       return "ac-\(cs.count)-\(hashValue)"
-        case .sortActivity(let items, _): return "sa-\(items.count)-\(hashValue)"
-        case .writeInline:               return "wi-\(hashValue)"
-        case .drawBoard:                 return "db-\(hashValue)"
-        }
-    }
-}
-
-// MARK: - 课时详情
-
-/// 课时练习（lesson 页 exercise-list 区的 openBtn；内容为官网弹窗交互，
-/// App 内以「课时页 URL + #ex{ssi} 深链」唤起官网原生弹窗）
-struct LessonExercise: Identifiable, Hashable {
-    /// 练习 ssi id（如 2095，对应 openBtn 的 data-ssi）
-    let id: String
-    /// 练习标题，如 "1-1 Unit 1 Project: Brainstorming"
-    let title: String
-    /// openBtn 上的请求上下文参数（官网 JS 用它们拼练习 AJAX URL）：
-    /// data-school / data-country / data-custom / data-unit / data-answers /
-    /// data-paid / data-userid / data-resultid / data-classid / data-assignid。
-    /// 按钮上缺失时记字面 "undefined"（与官网 jQuery attr 行为字节一致）。
-    var school: String = ""
-    var country: String = ""
-    var custom: String = ""
-    var unit: String = ""
-    var answers: String = ""
-    var paid: String = ""
-    var userId: String = ""
-    var resultId: String = ""
-    var classId: String = ""
-    var assignId: String = ""
-}
-
-struct LessonDetail: Identifiable {
-    let id: String
-    let title: String
-    /// 侧边栏同课程课时导航（当前课时高亮）
-    let siblings: [LessonItem]
-    let blocks: [LessonBlock]
-    /// 本课时可用的练习（官网弹窗交互，App 内 WebView 深链承载）
-    var exercises: [LessonExercise] = []
-}
-
 // MARK: - Classes（我的班级）
 
 /// 班级成员（Classes 页卡片内的头像列表，名字来自头像的 tooltip）
@@ -321,46 +227,6 @@ struct ClassCourse: Equatable {
     /// 课程在 Library 的 id（页面 folder_open 按钮的 /sunshine/library/{id}）
     let courseLibraryId: String
     let units: [ClassUnit]
-}
-
-// MARK: - 练习（/sunshine/exercise/{ssi}，原生作答）
-
-/// 下拉选择题选项（option value=qaXXXX，label 如 "Aa"）
-struct ExerciseOption: Hashable {
-    let value: String
-    let label: String
-}
-
-/// 练习子题（display-type=dropdown：题图 + 下拉选项）
-struct ExerciseQuestion: Identifiable, Hashable {
-    /// 题目 id（如 119467，提交时字段名 q{id}）
-    let id: String
-    /// 题号，如 "a."
-    let number: String
-    /// 题图（figimg 背景）
-    let imageURL: URL?
-    let options: [ExerciseOption]
-}
-
-/// 练习表单隐藏字段（提交时原样带回）
-struct ExerciseHidden: Hashable {
-    let exerciseId: String
-    let userId: String
-    let status: String
-    let resultId: String
-    let comment: String
-}
-
-/// 练习完整数据（当前支持 dropdown 题型；其余题型解析时跳过）
-struct ExerciseData: Hashable {
-    let ssi: String
-    let title: String
-    /// 题干说明（group 题型文本，如 "Match the picture to the letter."）
-    let instruction: String
-    let questions: [ExerciseQuestion]
-    let hidden: ExerciseHidden
-
-    var isNoAccess: Bool { questions.isEmpty }
 }
 
 // MARK: - 登录账号

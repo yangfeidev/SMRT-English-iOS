@@ -148,10 +148,6 @@ struct CourseDetailView: View {
                                 LessonRow(lesson: lesson)
                             }
                             .buttonStyle(.plain)
-                            // 点击瞬间预取：转场期间完成下载+解析，push 进来秒开
-                            .simultaneousGesture(TapGesture().onEnded {
-                                SMRTClient.shared.prefetchLesson(courseId: course.id, lessonId: lesson.id)
-                            })
                         }
                     }
                 }

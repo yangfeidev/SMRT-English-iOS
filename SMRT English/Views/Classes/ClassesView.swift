@@ -1,13 +1,14 @@
 //
 //  ClassesView.swift
-//  SMRT English
 //
 //  我的班级页（第三个 Tab，对齐官网 /sunshine/classes）
-//  - 标题栏：My Classes + 右上角头像按钮（进入 Me 页，对齐官网右上角头像下拉）
 //  - 班级卡片：班级名 + 课程 pill + 成员头像列表，点击进原生班级课程页（ClassCourseView）
 //  - Join a Class 卡片：add_box 图标 + 文案，点击打开官网 Classes 页弹窗
 //    （官网 join-class-modal 由前端注入，App 内以带登录态的 WebView 承载）
-//  - 数据：SMRTClient.myClasses() 抓取登录态 HTML 解析（新账号无班级为正常态）
+//  - Me 区块：账号卡 + 退出登录，常驻列表底部（原右上角头像 → 独立 Me 页已取消）
+//  - 会话恢复：数据拉取遇会话失效时先静默重登（记住过密码时）再重试；
+//    仍失败则 Me 区块显示「登录已过期」+ 重新登录入口（此前只显示空列表 +
+//    账号卡假登录态的 bug 已修）
 //
 
 import SwiftUI
@@ -23,6 +24,8 @@ struct ClassesView: View {
     @State private var showJoinSheet = false
     /// 当前登录账号显示名（中式「姓+名」，如 杨谨灿），用于在成员列表中标记自己
     @State private var myDisplayName: String?
+    /// 会话是否有效（班级数据拉取成功/失败驱动 Me 区块展示）
+    @State private var sessionValid = true
 
     var body: some View {
         CompatNavigationStack {
@@ -63,18 +66,7 @@ struct ClassesView: View {
             Text("My Classes")
                 .font(.system(size: 32, weight: .bold))
                 .foregroundStyle(Theme.textPrimary)
-
             Spacer(minLength: 12)
-
-            // 头像入口：对齐官网右上角头像 → Me 页（账号信息 / 退出登录）
-            NavigationLink {
-                ProfileView()
-            } label: {
-                Image(systemName: "person.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(Theme.accent)
-            }
-            .accessibilityIdentifier("classes.profile")
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -130,8 +122,12 @@ struct ClassesView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 24)
+
+                // Me 区块：账号卡 + 退出登录（会话失效时显示「登录已过期」+ 重新登录）
+                ProfileSection(sessionValid: sessionValid)
+                    .padding(.bottom, 8)
             }
+            .padding(.bottom, 24)
         }
     }
 
@@ -234,16 +230,41 @@ struct ClassesView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            classes = try await SMRTClient.shared.myClasses()
+            classes = try await myClassesWithSessionRecovery()
+            sessionValid = true
             Self.log.info("loaded \(classes.count) classes")
         } catch {
             if error.isCancellation { return }
             classes = []
-            errorMessage = error.localizedDescription
+            if isNotLoggedIn(error) {
+                // 会话已失效且无法静默恢复：Me 区块显示「登录已过期」，不再假装已登录
+                sessionValid = false
+            } else {
+                errorMessage = error.localizedDescription
+            }
             Self.log.error("load classes failed: \(error.localizedDescription, privacy: .public)")
         }
         // 显示名独立 best-effort 拉取：失败时回退缓存，不影响班级列表展示
-        myDisplayName = await SMRTClient.shared.refreshMyDisplayName()
+        if sessionValid {
+            myDisplayName = await SMRTClient.shared.refreshMyDisplayName()
+        }
+    }
+
+    /// 拉班级列表；会话失效时先静默重登（Keychain 记住过密码时）再重试一次
+    private func myClassesWithSessionRecovery() async throws -> [StudentClass] {
+        do {
+            return try await SMRTClient.shared.myClasses()
+        } catch {
+            guard isNotLoggedIn(error) else { throw error }
+            Self.log.info("session expired, trying silent relogin")
+            guard await SMRTClient.shared.autoReloginIfNeeded() else { throw error }
+            Self.log.info("silent relogin ok, retry classes")
+            return try await SMRTClient.shared.myClasses()
+        }
+    }
+
+    private func isNotLoggedIn(_ error: Error) -> Bool {
+        (error as? SMRTError) == .notLoggedIn
     }
 }
 
