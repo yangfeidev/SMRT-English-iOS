@@ -277,7 +277,7 @@ struct WebPageScreen: View {
 
     var body: some View {
         WebViewRepresentable(url: url, syncCookies: true)
-            .ignoresSafeArea(edges: .bottom)
+            // 底部不忽略安全区：同课时详情页，网页 fixed 底栏（如 Join 弹窗按钮）不被 tabbar 遮挡
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
     }

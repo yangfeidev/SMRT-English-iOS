@@ -552,13 +552,17 @@ extension SMRTHTMLParser {
 
 extension SMRTHTMLParser {
 
-    /// Class List 页成员名（官网显示为「名 姓」顺序，原样返回）
+    /// Class List 页成员名（官网显示为「名 姓」西式顺序）：
+    /// 转为中式「姓+名」（如 林玺 李 → 李林玺），仅两段均为汉字时交换；
+    /// 并按姓名排序（与 Classes 页成员列表一致）
     static func parseClassListMembers(html: String) -> [String] {
         matches(#"<p class="miniprofile-title"[^>]*>([\s\S]*?)</p>"#, in: html)
             .compactMap { m -> String? in
                 let name = stripTags(String(m[1] ?? "")).trimmingCharacters(in: .whitespacesAndNewlines)
                 return name.isEmpty ? nil : name
             }
+            .map(normalizeChineseName)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     /// Assignments 页作业行

@@ -100,12 +100,105 @@ struct WebViewRepresentable: UIViewRepresentable {
     final class Coordinator {
         /// 当前已加载/正在加载的 URL（用于判断 SwiftUI 重绘是否伴随 URL 变化）
         var currentURL: URL?
+        /// WKUIDelegate 需弱引用持有者，由 Coordinator 持有保证生命周期
+        let dialogDelegate = DialogDelegate()
+    }
+
+    /// WKUIDelegate：把网页 JS 的 alert / confirm / prompt 桥接为原生弹窗。
+    /// 不实现时 WebKit 静默吞掉（confirm 返回 false），官网依赖 confirm 的
+    /// 提交按钮（练习「Complete」等）会点不出来。
+    final class DialogDelegate: NSObject, WKUIDelegate {
+
+        /// 从 WebView 沿 responder 链找宿主 VC（弹窗 present 用）
+        private func hostVC(for webView: WKWebView) -> UIViewController? {
+            var responder: UIResponder? = webView
+            while let r = responder {
+                if let vc = r as? UIViewController { return vc }
+                responder = r.next
+            }
+            return webView.window?.rootViewController
+                ?? UIApplication.shared.connectedScenes
+                    .compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }
+                    .first
+        }
+
+        private func present(message: String, webView: WKWebView,
+                             addTextField: ((UITextField) -> Void)? = nil,
+                             confirmTitle: String = "确定",
+                             completion: @escaping (String?) -> Void) {
+            guard let vc = hostVC(for: webView) else {
+                completion(addTextField == nil ? "" : nil)
+                return
+            }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            if let addTextField {
+                alert.addTextField { addTextField($0) }
+            }
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in
+                completion(nil)
+            })
+            alert.addAction(UIAlertAction(title: confirmTitle, style: .default) { _ in
+                completion(addTextField == nil ? "" : alert.textFields?.first?.text ?? "")
+            })
+            vc.present(alert, animated: true)
+        }
+
+        /// window.alert(...)
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping () -> Void) {
+            present(message: message, webView: webView) { _ in completionHandler() }
+        }
+
+        /// window.confirm(...) —— 取消→false，确定→true（官网练习 Complete 依赖此返回值）
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping (Bool) -> Void) {
+            present(message: message, webView: webView) { result in
+                completionHandler(result != nil)
+            }
+        }
+
+        /// window.prompt(...)
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
+                     defaultText: String?, initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping (String?) -> Void) {
+            present(message: prompt, webView: webView, addTextField: { $0.text = defaultText }) {
+                completionHandler($0)
+            }
+        }
+    }
+
+    /// 全局共享的 WebKit 进程池：所有 WebView 实例共用同一个 WebContent 进程，
+    /// 避免每次新建 WebView 都冷启动进程（首个课时详情 push 卡顿的根因之一）
+    static let sharedProcessPool = WKProcessPool()
+
+    /// 预热用的临时 WebView（warmUp 创建，加载完成后置 nil 释放）
+    private static var warmUpWebView: WKWebView?
+
+    /// App 启动后调用：后台创建一个加载 about:blank 的 WebView，
+    /// 提前拉起 WebKit 渲染进程，把首次冷启动成本挪出用户点击路径
+    static func warmUp() {
+        guard warmUpWebView == nil else { return }
+        let config = WKWebViewConfiguration()
+        config.processPool = sharedProcessPool
+        let webView = WKWebView(frame: .zero, configuration: config)
+        warmUpWebView = webView
+        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        // 2s 后释放（进程已拉起，WebView 本身不再需要）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            warmUpWebView = nil
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        // 共享进程池（isolatedStorage 的 Cafe 页除外——独立存储配套独立进程更干净）
+        if !isolatedStorage {
+            config.processPool = Self.sharedProcessPool
+        }
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         if isolatedStorage {
@@ -127,6 +220,9 @@ struct WebViewRepresentable: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.backgroundColor = pageBackgroundColor
         webView.isOpaque = false
+        // JS 对话框桥接：官网练习「Complete」提交走 confirm()，未实现 uiDelegate 时
+        // WebKit 静默返回 false → 提交永远不执行（真机踩坑）
+        webView.uiDelegate = context.coordinator.dialogDelegate
 
         context.coordinator.currentURL = url
         if syncCookies {

@@ -94,6 +94,10 @@ struct MainTabView: View {
                 .tag(Tab.classes)
         }
         .tint(Theme.tabBlue)
+        .task {
+            // 登录后预热 WebKit 渲染进程：首次进课时详情（WebView 页）不再卡顿
+            WebViewRepresentable.warmUp()
+        }
         .onChange(of: selection) { newTab in
             // Classes 依赖登录态（PHPSESSID 服务端约 1-2 小时过期）：
             // 切入时校验，失效直接弹全屏登录页；5 分钟内不重复校验
