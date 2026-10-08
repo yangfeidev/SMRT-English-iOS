@@ -164,6 +164,36 @@ final class SMRTClient {
         }
     }
 
+    /// 会话失效自动恢复包装：登录态请求抛 notLoggedIn 时，用 Keychain 记住的账密
+    /// 静默重登一次并重试原请求。
+    /// - 重登成功 → 用户无感恢复，数据正常返回
+    /// - 重登失败（Keychain 无密码/密码已改）→ 会话确定失效，广播 smrtSessionInvalid
+    ///   让 RootView 切回登录页——等效用户手动「退出登录→再登录」，避免 Classes 页
+    ///   拿缓存假登录态撑着、点进列表才失败的死局。
+    /// 所有登录态抓取方法（myClasses/classCourse/classPageHTML/refreshMyDisplayName）
+    /// 内部均已包上，调用方无需自行处理重登。
+    func withSessionRecovery<T>(_ operation: () async throws -> T) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            guard isSessionExpired(error) else { throw error }
+            Self.log.info("session expired, trying silent relogin")
+            guard await autoReloginIfNeeded() else {
+                Self.log.error("silent relogin failed, broadcasting session invalid")
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .smrtSessionInvalid, object: nil)
+                }
+                throw error
+            }
+            Self.log.info("silent relogin ok, retrying request")
+            return try await operation()
+        }
+    }
+
+    private func isSessionExpired(_ error: Error) -> Bool {
+        (error as? SMRTError) == .notLoggedIn
+    }
+
     /// 忘记密码：请求官网向邮箱发送重置邮件（对齐官网 forgotpass 表单：
     /// POST /process.php，email + subforgot=1 + school_key=sunshine）
     func forgotPassword(email: String) async throws {
@@ -218,8 +248,9 @@ final class SMRTClient {
     /// 拉取并缓存当前账号显示名（Me 页 name 字段，西式「名 姓」转中式）。
     /// 任何失败都回退到缓存值，不阻断调用方。
     func refreshMyDisplayName() async -> String? {
-        guard let html = try? await getHTML(path: "/sunshine/me",
-                                            requirePathContains: "/sunshine/me") else { return cachedDisplayName }
+        guard let html = try? await withSessionRecovery({
+            try await self.getHTML(path: "/sunshine/me", requirePathContains: "/sunshine/me")
+        }) else { return cachedDisplayName }
         if isLoggedOutHTML(html) { return cachedDisplayName }
         let name = await Task.detached(priority: .utility) {
             SMRTHTMLParser.parseMyDisplayName(html: html)
@@ -337,31 +368,39 @@ final class SMRTClient {
     // MARK: - Classes（我的班级）
 
     /// 我的班级列表（登录态）。新账号无班级时返回空数组。
+    /// 内部含会话恢复：失效先静默重登再重试，重登失败广播切登录页。
     func myClasses() async throws -> [StudentClass] {
-        // requirePathContains：会话失效时 302 → /smrt/，靠最终路径判定登出
-        let html = try await getHTML(path: "/sunshine/classes",
-                                     requirePathContains: "/sunshine/classes")
-        if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
-        return SMRTHTMLParser.parseMyClasses(html: html)
+        try await withSessionRecovery { [unowned self] in
+            // requirePathContains：会话失效时 302 → /smrt/，靠最终路径判定登出
+            let html = try await getHTML(path: "/sunshine/classes",
+                                         requirePathContains: "/sunshine/classes")
+            if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
+            return SMRTHTMLParser.parseMyClasses(html: html)
+        }
     }
 
-    /// 班级课程页（Course tab，单元树）
+    /// 班级课程页（Course tab，单元树）。内部含会话恢复（同 myClasses）。
     func classCourse(classId: String) async throws -> ClassCourse {
-        let html = try await getHTML(path: "/sunshine/class/\(classId)/course/",
-                                     requirePathContains: "/sunshine/class/")
-        if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
-        return try await Task.detached(priority: .userInitiated) {
-            let course = SMRTHTMLParser.parseClassCourse(html: html)
-            guard !course.units.isEmpty else { throw SMRTError.parseFailed }
-            return course
-        }.value
+        try await withSessionRecovery { [unowned self] in
+            let html = try await getHTML(path: "/sunshine/class/\(classId)/course/",
+                                         requirePathContains: "/sunshine/class/")
+            if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
+            return try await Task.detached(priority: .userInitiated) {
+                let course = SMRTHTMLParser.parseClassCourse(html: html)
+                guard !course.units.isEmpty else { throw SMRTError.parseFailed }
+                return course
+            }.value
+        }
     }
 
-    /// 班级子页面 HTML（Class List / Attendance / Assignments / Assessments / Class Info）
+    /// 班级子页面 HTML（Class List / Attendance / Assignments / Assessments / Class Info）。
     /// - Parameter tab: 子 Tab（rawValue 即官网路径段）
+    /// 内部含会话恢复（同 myClasses）。
     func classPageHTML(classId: String, tab: ClassTab) async throws -> String {
-        try await getHTML(path: "/sunshine/class/\(classId)/\(tab.rawValue)/",
-                          requirePathContains: "/sunshine/class/")
+        try await withSessionRecovery { [unowned self] in
+            try await getHTML(path: "/sunshine/class/\(classId)/\(tab.rawValue)/",
+                              requirePathContains: "/sunshine/class/")
+        }
     }
 
     // MARK: - 练习

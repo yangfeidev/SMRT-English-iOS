@@ -250,17 +250,11 @@ struct ClassesView: View {
         }
     }
 
-    /// 拉班级列表；会话失效时先静默重登（Keychain 记住过密码时）再重试一次
+    /// 拉班级列表。SMRTClient.myClasses 内部已含会话恢复：
+    /// 失效先静默重登再重试；重登失败广播 smrtSessionInvalid 全局切登录页。
+    /// 这里 catch 后仍收到 notLoggedIn 时，把 Me 区块切「登录已过期」兜底显示。
     private func myClassesWithSessionRecovery() async throws -> [StudentClass] {
-        do {
-            return try await SMRTClient.shared.myClasses()
-        } catch {
-            guard isNotLoggedIn(error) else { throw error }
-            Self.log.info("session expired, trying silent relogin")
-            guard await SMRTClient.shared.autoReloginIfNeeded() else { throw error }
-            Self.log.info("silent relogin ok, retry classes")
-            return try await SMRTClient.shared.myClasses()
-        }
+        try await SMRTClient.shared.myClasses()
     }
 
     private func isNotLoggedIn(_ error: Error) -> Bool {

@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @State private var phase: Phase = .checking
@@ -105,6 +106,13 @@ struct MainTabView: View {
             if let last = lastSessionCheck, Date().timeIntervalSince(last) < 300 {
                 return
             }
+            Task { await validateSessionForClasses() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            // 回前台校验：会话被顶掉（如网页端单点登录互踢）多发生在 App 外，
+            // 停在 Classes 页期间不会触发 onChange 校验——回前台是发现失效的主要时机，
+            // 不受 5 分钟节流限制（节流只约束 tab 切换的重复校验）
+            guard selection == .classes else { return }
             Task { await validateSessionForClasses() }
         }
         .fullScreenCover(isPresented: $showLoginCover) {
