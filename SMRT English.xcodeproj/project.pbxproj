@@ -16,7 +16,6 @@
 		14882399CE75EA2F20542AEF /* NSTextAttachment+Kingfisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8120D58C1E1A77FBC5865951 /* NSTextAttachment+Kingfisher.swift */; };
 		14CAF47646FE66559399808A /* KF.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5799C8638CD9C149C65FED1 /* KF.swift */; };
 		161040457DA06D1534861E0E /* PHPickerResultImageDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5CB635DB9D0FD99E58C2C18 /* PHPickerResultImageDataProvider.swift */; };
-		16494CD50C072BA2FFBA3F1C /* NavigationCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBE134D819FB5F11DF314FDE /* NavigationCompat.swift */; };
 		188A86CA68941F54326D9AF1 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEB4E15B68B30D7968371EC /* LoginView.swift */; };
 		1DD3D86D93BCB72A47EEAB37 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00614E6CA6E30BB0284BFBE5 /* ImageCache.swift */; };
 		275327D655119B398CD3A6F0 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = EACA945D0B43B742A95B9EFB /* Keychain.swift */; };
@@ -91,6 +90,7 @@
 		E785222863DB686ED31B79C8 /* WebViewRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B10A5F3D3DFEC90BB31748 /* WebViewRepresentable.swift */; };
 		E80BD36B3E2C04D58D8F6710 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55E5812DB1A52EF1775D9A38 /* LibraryView.swift */; };
 		E90862C52D5C3BB21A8959CA /* CafeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB61B421D808E12CA855F2D1 /* CafeUITests.swift */; };
+		E9E1D41E6754D8ECAB8CEB54 /* ClassCourseTabViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C94B156F9065E454B110E21 /* ClassCourseTabViews.swift */; };
 		EA34980080CE020625E3E1E3 /* Indicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A436D155C71DE14D96D61288 /* Indicator.swift */; };
 		F05E958DFBED2A5F91FE2129 /* SessionDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A4FDCFE71BAA6516104AA3 /* SessionDelegate.swift */; };
 		F1E110E76774CD32E22159ED /* VideoPlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B66136A8F5FAD85C420C67 /* VideoPlayerScreen.swift */; };
@@ -159,6 +159,7 @@
 		58879EA0F8D00D705BC1D597 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		597D47CB7C1C14792E9F55CA /* CallbackQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallbackQueue.swift; sourceTree = "<group>"; };
 		5BE0FA08FD4EFE5DA1CF5426 /* RequestModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestModifier.swift; sourceTree = "<group>"; };
+		5C94B156F9065E454B110E21 /* ClassCourseTabViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClassCourseTabViews.swift; sourceTree = "<group>"; };
 		64F92523820E261E0F3E6260 /* ImageTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageTransition.swift; sourceTree = "<group>"; };
 		65AAE3FCB65D93D0238E11CA /* MemoryStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryStorage.swift; sourceTree = "<group>"; };
 		65EEDAFB694EEE57539AD5A3 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -188,7 +189,6 @@
 		B5B2F46C933C06E05CA090D4 /* ExtensionHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionHelpers.swift; sourceTree = "<group>"; };
 		B5CB635DB9D0FD99E58C2C18 /* PHPickerResultImageDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHPickerResultImageDataProvider.swift; sourceTree = "<group>"; };
 		B92F1DBEB166A818F963C61E /* SMRTHTMLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMRTHTMLParser.swift; sourceTree = "<group>"; };
-		BBE134D819FB5F11DF314FDE /* NavigationCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationCompat.swift; sourceTree = "<group>"; };
 		C0DA452757E3CB4F0AA957A3 /* ImageDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDataProvider.swift; sourceTree = "<group>"; };
 		C19E5C9CBB82E0CB04694658 /* ImageModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageModifier.swift; sourceTree = "<group>"; };
 		C644F22E0756631E8437FBE6 /* ImageProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageProcessor.swift; sourceTree = "<group>"; };
@@ -278,6 +278,7 @@
 		20B6D3D853FFAEC3859490EC /* Classes */ = {
 			isa = PBXGroup;
 			children = (
+				5C94B156F9065E454B110E21 /* ClassCourseTabViews.swift */,
 				EE1377B09329516A02D11FC6 /* ClassCourseView.swift */,
 				8C34DBDCA1D10786E8BEB5A0 /* ClassesView.swift */,
 			);
@@ -312,7 +313,6 @@
 			isa = PBXGroup;
 			children = (
 				EACA945D0B43B742A95B9EFB /* Keychain.swift */,
-				BBE134D819FB5F11DF314FDE /* NavigationCompat.swift */,
 				4AE05C5748A61175BE765AED /* RootView.swift */,
 				DB226B2EFCC5D30252757A36 /* SMRTEnglishApp.swift */,
 				33135C25F4AD74A8805AB612 /* Theme.swift */,
@@ -738,6 +738,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				309D6D852060314CB7DEFE18 /* CafeView.swift in Sources */,
+				E9E1D41E6754D8ECAB8CEB54 /* ClassCourseTabViews.swift in Sources */,
 				8BB129748AB54FF3CD0DC930 /* ClassCourseView.swift in Sources */,
 				BC7D27B358605C57BEDE6E69 /* ClassesView.swift in Sources */,
 				7939F73A171BA8BE32C2372C /* CourseDetailView.swift in Sources */,
@@ -747,7 +748,6 @@
 				E80BD36B3E2C04D58D8F6710 /* LibraryView.swift in Sources */,
 				188A86CA68941F54326D9AF1 /* LoginView.swift in Sources */,
 				FF436771C8EF409110BD800C /* Models.swift in Sources */,
-				16494CD50C072BA2FFBA3F1C /* NavigationCompat.swift in Sources */,
 				707D107EB5E06C4304F0749B /* ProfileView.swift in Sources */,
 				7AC782FDFF5DDB44A01320C4 /* RootView.swift in Sources */,
 				689FF1F1597858F3F28287B8 /* SMRTClient.swift in Sources */,
@@ -820,7 +820,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -907,7 +907,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

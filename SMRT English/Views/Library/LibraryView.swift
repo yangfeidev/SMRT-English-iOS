@@ -20,7 +20,7 @@ struct LibraryView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        CompatNavigationStack {
+        NavigationStack {
             ZStack {
                 Theme.background.ignoresSafeArea()
                 content

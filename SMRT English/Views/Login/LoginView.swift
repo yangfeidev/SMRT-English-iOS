@@ -189,7 +189,7 @@ struct ForgotPasswordView: View {
     @State private var resultIsError = false
 
     var body: some View {
-        CompatNavigationStack {
+        NavigationStack {
             ZStack {
                 Theme.background.ignoresSafeArea()
                 VStack(alignment: .leading, spacing: 18) {

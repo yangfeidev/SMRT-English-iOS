@@ -541,3 +541,83 @@ extension SMRTHTMLParser {
                            courseLibraryId: courseLibraryId, units: units)
     }
 }
+
+// MARK: - 6b. 班级子页面（Class List / Assignments / Attendance / Assessments / Class Info）
+//
+// 学生只读视角的 5 个低频页面，结构都很简单：
+// - classlist：p.miniprofile-title 成员名列表
+// - assignments：表格行 = 状态(tippy) + 标题(链接到课时#ex) + 截止日期 + 得分(resultgraph)
+// - attendance / assessments：当前为空态（No Attendance Records / No Assessment Results）
+// - classinfo：fieldset.profileform 内 label + form-control 键值对
+
+extension SMRTHTMLParser {
+
+    /// Class List 页成员名（官网显示为「名 姓」顺序，原样返回）
+    static func parseClassListMembers(html: String) -> [String] {
+        matches(#"<p class="miniprofile-title"[^>]*>([\s\S]*?)</p>"#, in: html)
+            .compactMap { m -> String? in
+                let name = stripTags(String(m[1] ?? "")).trimmingCharacters(in: .whitespacesAndNewlines)
+                return name.isEmpty ? nil : name
+            }
+    }
+
+    /// Assignments 页作业行
+    static func parseClassAssignments(html: String) -> [ClassAssignment] {
+        guard let tableRange = html.range(of: "<table") else { return [] }
+        let tableEnd = html.range(of: "</table>", range: tableRange.upperBound..<html.endIndex)?
+            .lowerBound ?? html.endIndex
+        let table = String(html[tableRange.lowerBound..<tableEnd])
+
+        var result: [ClassAssignment] = []
+        for rowMatch in matches(#"<tr[^>]*>([\s\S]*?)</tr>"#, in: table) {
+            let row = String(rowMatch[1] ?? "")
+            // 行首 td 的 data-tippy-content 即状态（Complete / Assigned...）
+            let status = firstGroup(#"data-tippy-content="([^"]*)""#, row) ?? ""
+            let titleRaw = stripTags(firstGroup(#"<strong[^>]*>([\s\S]*?)</strong>"#, row) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !titleRaw.isEmpty else { continue }
+            let link = firstGroup(#"href="(/sunshine/lesson/[^"]+)""#, row)
+            let section = stripTags(firstGroup(#"<span class="smalltext">([\s\S]*?)</span>"#, row) ?? "")
+            // 截止日期：tippy 文案为 "Assigned Oct 6th" 的 span，正文是截止日
+            let dueDate = stripTags(firstGroup(#"<span[^>]*data-tippy-content="Assigned[^"]*"[^>]*>([\s\S]*?)</span>"#, row) ?? "")
+            // 得分：resultgraph 内文本（如 100%），未完成时可能为空
+            let score = stripTags(firstGroup(#"<div class="resultgraph[^"]*">([\s\S]*?)</div>"#, row) ?? "")
+            result.append(ClassAssignment(id: link ?? titleRaw,
+                                          status: status,
+                                          title: titleRaw,
+                                          section: section,
+                                          lessonPath: link,
+                                          dueDate: dueDate,
+                                          score: score))
+        }
+        return result
+    }
+
+    /// Class Info 页键值对（Teacher 的值内含多段 <p>，以换行拼接）
+    static func parseClassInfo(html: String) -> [ClassInfoItem] {
+        matches(#"<label class="col-md-3">([\s\S]*?)</label>[\s\S]*?<div class="form-control disabled">([\s\S]*?)</div>"#, in: html)
+            .compactMap { m -> ClassInfoItem? in
+                let label = stripTags(String(m[1] ?? "")).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !label.isEmpty else { return nil }
+                let rawValue = String(m[2] ?? "").replacingOccurrences(of: "</p>", with: "\n")
+                // 多段文本间的大段空白收敛为单个换行
+                let value = stripTags(rawValue)
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return ClassInfoItem(label: label, value: value)
+            }
+    }
+
+    /// Attendance 页是否为空态（官网文案 No Attendance Records）
+    static func parseClassAttendanceEmpty(html: String) -> Bool {
+        html.contains("No Attendance Records")
+    }
+
+    /// Assessments 页是否为空态（官网文案 No Assessment Results）
+    static func parseClassAssessmentsEmpty(html: String) -> Bool {
+        html.contains("No Assessment Results")
+    }
+}

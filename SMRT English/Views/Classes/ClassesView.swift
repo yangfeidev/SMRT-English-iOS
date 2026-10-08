@@ -28,7 +28,7 @@ struct ClassesView: View {
     @State private var sessionValid = true
 
     var body: some View {
-        CompatNavigationStack {
+        NavigationStack {
             ZStack {
                 Theme.background.ignoresSafeArea()
                 VStack(spacing: 0) {
@@ -38,7 +38,7 @@ struct ClassesView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showJoinSheet) {
-                CompatNavigationStack {
+                NavigationStack {
                     WebPageScreen(
                         title: "Join a Class",
                         url: SMRTClient.shared.baseURL.appendingPathComponent("/sunshine/classes")

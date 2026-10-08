@@ -40,7 +40,7 @@ struct CafeView: View {
     }
 
     var body: some View {
-        CompatNavigationStack {
+        NavigationStack {
             ZStack {
                 Theme.background.ignoresSafeArea()
                 VStack(spacing: 0) {
@@ -51,7 +51,7 @@ struct CafeView: View {
             }
             // 标题栏自绘（Cafe + 搜索框同行），隐藏系统导航栏；
             // 推入的播放页自行显示导航栏与返回按钮，不受影响
-            .compatNavigationBarHidden()
+            .toolbar(.hidden, for: .navigationBar)
         }
         .task(id: tab.path) {
             Self.log.info("tab switched → \(tab.path, privacy: .public), reload page 1")
@@ -138,18 +138,28 @@ struct CafeView: View {
     // MARK: - 分级 Tab
 
     private var levelPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(CafeTab.levels, id: \.path) { lv in
-                    tabButton(lv)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(CafeTab.levels, id: \.path) { lv in
+                        tabButton(lv)
+                            .id(lv.path)
+                    }
+                    // 搜索/分类 Tab 以胶囊形式追加显示（当前激活）
+                    if !CafeTab.levels.contains(where: { $0.path == tab.path }) {
+                        tabButton(tab)
+                            .id(tab.path)
+                    }
                 }
-                // 搜索/分类 Tab 以胶囊形式追加显示（当前激活）
-                if !CafeTab.levels.contains(where: { $0.path == tab.path }) {
-                    tabButton(tab)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .onChange(of: tab.path) { path in
+                // 选中变化（含点胶囊 ×/搜索/分类）后把选中胶囊滚到视口居中
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(path, anchor: .center)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
     }
 

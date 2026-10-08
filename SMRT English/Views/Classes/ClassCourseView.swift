@@ -2,14 +2,15 @@
 //  ClassCourseView.swift
 //  SMRT English
 //
-//  班级课程页（对齐官网 /sunshine/class/{id}/course/ 的 Course tab）
-//  - 数据：SMRTClient.classCourse(classId:) 抓取登录态 HTML 解析
-//  - 头部：课程名（点击回 Classes 列表，官网同款）+ 班级名
-//  - 单元树：手风琴（单元头=封面图+单元名+序号；展开=分组+课时行）
+//  班级课程页（对齐官网 /sunshine/class/{id}/ 的 6 个子页面）
+//  - 顶部 Tab：Course / Class List / Attendance / Assignments / Assessments / Class Info
+//    （对应官网左侧菜单；注意 Assessments 的官网路径是 evaluation）
+//  - Course tab：原生实现——SMRTClient.classCourse(classId:) 抓取解析单元树，
+//    手风琴（单元头=封面图+单元名+序号；展开=分组+课时行），
 //    课时行含练习/共享状态（官网 lesson-status：In Progress / Lesson only / Not shared）
-//  - 点击课时 → 原生 LessonDetailView（课时内容 + Exercises 练习深链已支持）
-//  - 子 tab（Class List / Attendance / Assignments / Assessments / Class Info）
-//    本轮未做，仅渲染 Course 主内容
+//    点击课时 → 原生 LessonDetailView
+//  - 其余 5 个 tab：WebView 登录态承载官网对应页面（低频查看型页面，
+//    不做原生解析，跟随官网改版免维护）
 //
 
 import SwiftUI
@@ -26,21 +27,88 @@ struct ClassCourseView: View {
     @State private var errorMessage: String?
     /// 展开的单元（官网手风琴默认展开第一个）
     @State private var expandedUnitIDs: Set<String> = []
+    /// 当前子 Tab
+    @State private var selectedTab: ClassTab = .course
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
-            content
+        VStack(spacing: 0) {
+            tabBar
+            Group {
+                switch selectedTab {
+                case .course:
+                    ZStack {
+                        Theme.background.ignoresSafeArea()
+                        courseContent
+                    }
+                case .classList:
+                    ClassListTabView(classId: klass.id)
+                case .attendance:
+                    AttendanceTabView(classId: klass.id)
+                case .assignments:
+                    AssignmentsTabView(classId: klass.id)
+                case .assessments:
+                    AssessmentsTabView(classId: klass.id)
+                case .classInfo:
+                    ClassInfoTabView(classId: klass.id)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(Theme.background.ignoresSafeArea())
         .navigationTitle(klass.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task {
+            if selectedTab == .course, course == nil { await load() }
+        }
+        .onChange(of: selectedTab) { tab in
+            // 切回 Course 且无数据（如上次加载失败）时补拉
+            if tab == .course, course == nil, !isLoading {
+                Task { await load() }
+            }
+        }
     }
 
-    // MARK: - 内容区
+    // MARK: - 子 Tab 栏
+
+    private var tabBar: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ClassTab.allCases) { tab in
+                        let isActive = selectedTab == tab
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            Text(tab.title)
+                                .font(.subheadline.weight(isActive ? .bold : .regular))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(isActive ? Theme.accent : Theme.card)
+                                .foregroundStyle(isActive ? .white : Theme.textSecondary)
+                                .clipShape(Capsule())
+                                .shadow(color: .black.opacity(0.04), radius: 3, y: 2)
+                        }
+                        .id(tab)
+                        .accessibilityIdentifier("class.tab.\(tab.title)")
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .onChange(of: selectedTab) { tab in
+                // 点击后把选中的胶囊滚动到视口居中，避免点边缘的 tab 够不着
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(tab, anchor: .center)
+                }
+            }
+        }
+        .background(Theme.background)
+    }
+
+    // MARK: - Course 内容区（原生）
 
     @ViewBuilder
-    private var content: some View {
+    private var courseContent: some View {
         if isLoading && course == nil {
             ProgressView("加载中…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

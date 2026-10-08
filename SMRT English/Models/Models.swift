@@ -157,6 +157,56 @@ struct CourseUnit: Identifiable, Hashable {
     var id: String { name + number }
 }
 
+/// 班级页子 Tab（rawValue = 官网 URL 路径段）
+/// 官网班级页左侧菜单：Course / Class List / Attendance / Assignments / Assessments / Class Info
+/// 注意 Assessments 的官网路径是 evaluation
+enum ClassTab: String, CaseIterable, Identifiable {
+    case course = "course"
+    case classList = "classlist"
+    case attendance = "attendance"
+    case assignments = "assignments"
+    case assessments = "evaluation"
+    case classInfo = "classinfo"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .course: return "Course"
+        case .classList: return "Class List"
+        case .attendance: return "Attendance"
+        case .assignments: return "Assignments"
+        case .assessments: return "Assessments"
+        case .classInfo: return "Class Info"
+        }
+    }
+}
+
+/// 班级作业（Assignments 页表格行，学生只读视角）
+struct ClassAssignment: Identifiable, Hashable {
+    /// 课时链接（含 #ex 锚点）作稳定 id，如 /sunshine/lesson/1339/13233#ex4421
+    let id: String
+    /// 状态文案（官网 data-tippy-content：Complete / Assigned...）
+    let status: String
+    /// 作业标题（课时名）
+    let title: String
+    /// 所属分组（如 Reading and Writing）
+    let section: String
+    /// 课时页链接（点击跳原生课时详情）
+    let lessonPath: String?
+    /// 截止日期（如 Oct 7th）
+    let dueDate: String
+    /// 得分（如 100%，未完成时为空）
+    let score: String
+}
+
+/// Class Info 页键值对（Class Code / Class Name / Course / Teacher）
+struct ClassInfoItem: Identifiable, Hashable {
+    let label: String
+    let value: String
+    var id: String { label }
+}
+
 // MARK: - Classes（我的班级）
 
 /// 班级成员（Classes 页卡片内的头像列表，名字来自头像的 tooltip）

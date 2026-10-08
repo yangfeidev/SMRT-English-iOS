@@ -2,7 +2,7 @@ name: SMRT English
 options:
   bundleIdPrefix: com.yangfei
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "17.0"
   createIntermediateGroups: true
 
 settings:

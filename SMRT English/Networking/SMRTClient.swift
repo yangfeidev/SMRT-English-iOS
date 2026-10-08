@@ -357,6 +357,13 @@ final class SMRTClient {
         }.value
     }
 
+    /// 班级子页面 HTML（Class List / Attendance / Assignments / Assessments / Class Info）
+    /// - Parameter tab: 子 Tab（rawValue 即官网路径段）
+    func classPageHTML(classId: String, tab: ClassTab) async throws -> String {
+        try await getHTML(path: "/sunshine/class/\(classId)/\(tab.rawValue)/",
+                          requirePathContains: "/sunshine/class/")
+    }
+
     // MARK: - 练习
 
     // 练习的原生解析/作答/提交已整体移除：课时正文改 WebView 加载官网页面后，
