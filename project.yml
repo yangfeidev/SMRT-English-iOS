@@ -24,6 +24,10 @@ targets:
       path: Resources/Info.plist
       properties:
         CFBundleDisplayName: SMRT English
+        # 版本号单一来源：settings.base 里的 MARKETING_VERSION / CURRENT_PROJECT_VERSION
+        # （plist 里写 $(VAR)，Xcode 构建时展开；直接硬编码会被 xcodegen 重写且与 build settings 脱节）
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # 启动屏：米白背景 + 居中书 logo（与登录页品牌视觉一致）
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -42,7 +46,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yangfei.smrtenglish
-        MARKETING_VERSION: 1.0.0
+        MARKETING_VERSION: 2.0.1
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
