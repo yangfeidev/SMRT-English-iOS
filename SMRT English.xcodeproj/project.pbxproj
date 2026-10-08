@@ -134,7 +134,7 @@
 		25A4FDCFE71BAA6516104AA3 /* SessionDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDelegate.swift; sourceTree = "<group>"; };
 		2652689C9C2D5824A73EAA99 /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		27D55F8A91874A417B312031 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
-		2D11158E4B31318696998D52 /* SMRT English.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SMRT English.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D11158E4B31318696998D52 /* SMRT English.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "SMRT English.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2DD742DD139B1EB131745BF9 /* KingfisherOptionsInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KingfisherOptionsInfo.swift; sourceTree = "<group>"; };
 		3047DA3FA0B0BE0B321F2445 /* KingfisherError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KingfisherError.swift; sourceTree = "<group>"; };
 		317A0A8537E3211F27C73D47 /* SMRTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMRTClient.swift; sourceTree = "<group>"; };
@@ -845,7 +845,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 2.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -997,7 +997,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 2.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
