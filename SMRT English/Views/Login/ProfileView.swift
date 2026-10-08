@@ -22,6 +22,11 @@ struct ProfileSection: View {
         SMRTClient.shared.savedEmail ?? "已登录"
     }
 
+    /// App 版本号（Info.plist CFBundleShortVersionString，单一来源 project.yml MARKETING_VERSION）
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
     var body: some View {
         VStack(spacing: 20) {
             if sessionValid {
@@ -31,7 +36,9 @@ struct ProfileSection: View {
                 expiredCard
             }
 
-            Text("SMRT English · 个人学习使用")
+            // 版本号跟随构建配置（project.yml MARKETING_VERSION → Info.plist），
+            // 反馈问题时截图自带版本信息
+            Text("SMRT English v\(Self.appVersion) · 个人学习使用")
                 .font(.caption2)
                 .foregroundStyle(Theme.textSecondary)
         }
