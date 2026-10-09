@@ -232,6 +232,8 @@ struct AttendanceTabView: View {
     let classId: String
     var navigationState: WebViewNavigationState? = nil
 
+    @StateObject private var progressTracker = WebViewProgressTracker()
+
     var body: some View {
         WebViewRepresentable(
             url: SMRTClient.shared.baseURL.appendingPathComponent("/sunshine/class/\(classId)/attendance/"),
@@ -240,7 +242,9 @@ struct AttendanceTabView: View {
             hideSiteHeader: true,
             extraCSS: WebViewRepresentable.classPageHideChromeCSS,
             navigationState: navigationState,
+            progressTracker: progressTracker,
             pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
+            .webViewProgressOverlay(progressTracker)
     }
 }
 
@@ -252,6 +256,8 @@ struct AssessmentsTabView: View {
     let classId: String
     var navigationState: WebViewNavigationState? = nil
 
+    @StateObject private var progressTracker = WebViewProgressTracker()
+
     var body: some View {
         WebViewRepresentable(
             url: SMRTClient.shared.baseURL.appendingPathComponent("/sunshine/class/\(classId)/evaluation/"),
@@ -260,7 +266,9 @@ struct AssessmentsTabView: View {
             hideSiteHeader: true,
             extraCSS: WebViewRepresentable.classPageHideChromeCSS,
             navigationState: navigationState,
+            progressTracker: progressTracker,
             pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
+            .webViewProgressOverlay(progressTracker)
     }
 }
 

@@ -24,12 +24,13 @@ struct LessonDetailView: View {
     }
 
     var body: some View {
-        WebViewScreen(title: lesson.title) { navState in
+        WebViewScreen(title: lesson.title) { navState, tracker in
             WebViewRepresentable(url: lessonURL,
                                  syncCookies: true,
                                  pageBackgroundColor: .white,
                                  hideSiteHeader: true,
-                                 navigationState: navState)
+                                 navigationState: navState,
+                                 progressTracker: tracker)
         }
         // 底部不忽略安全区：练习弹窗的进度条/Complete 按钮条是网页内 fixed
         // 定位，视口延伸到 tabbar 下面会被遮挡；止于 tabbar 上沿即可完整显示

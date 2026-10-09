@@ -38,6 +38,8 @@ private struct TeacherPageWebView: View {
     var viewportScale: CGFloat? = nil
     /// WebView 内部浏览历史返回控制（外层返回按钮先 goBack 用）
     var navigationState: WebViewNavigationState? = nil
+    /// 加载进度条
+    @StateObject private var progressTracker = WebViewProgressTracker()
 
     var body: some View {
         WebViewRepresentable(
@@ -51,7 +53,9 @@ private struct TeacherPageWebView: View {
             viewportShrinkLowerBound: viewportShrinkLowerBound,
             viewportScale: viewportScale,
             navigationState: navigationState,
+            progressTracker: progressTracker,
             pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
+            .webViewProgressOverlay(progressTracker)
     }
 }
 

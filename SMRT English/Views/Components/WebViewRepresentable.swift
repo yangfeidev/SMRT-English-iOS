@@ -106,6 +106,62 @@ final class AxisLockScrollDelegate: NSObject, UIScrollViewDelegate {
     }
 }
 
+/// WebView 加载进度跟踪：KVO estimatedProgress → progress（0~1）。
+/// 由 WebViewRepresentable 在 makeUIView 时安装观察，页面顶部细进度条
+/// （webViewProgressOverlay）按 progress 伸缩；页面内点击链接跳转会重新
+/// 从 0 走一遍，天然覆盖内跳加载反馈。
+final class WebViewProgressTracker: ObservableObject {
+    @Published var progress: Double = 0
+
+    /// 是否显示进度条：加载中（>0 且 <1）；完成/未开始隐藏
+    var isLoading: Bool { progress > 0.01 && progress < 0.999 }
+
+    private var observation: NSKeyValueObservation?
+
+    fileprivate func observe(_ webView: WKWebView) {
+        observation?.invalidate()
+        observation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] wv, _ in
+            DispatchQueue.main.async {
+                self?.progress = wv.estimatedProgress
+            }
+        }
+    }
+
+    /// 加载失败/完成兜底（进度停中间时强制收尾隐藏）
+    fileprivate func finish() {
+        progress = 1
+    }
+}
+
+/// 顶部加载进度条 overlay：2.5pt 细线随进度伸缩，完成后隐藏
+struct WebViewProgressOverlay: View {
+    @ObservedObject var tracker: WebViewProgressTracker
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Color.clear
+                Rectangle()
+                    .fill(Theme.accent)
+                    .frame(width: geo.size.width * tracker.progress)
+            }
+        }
+        .frame(height: 2.5)
+        .opacity(tracker.isLoading ? 1 : 0)
+        .animation(.easeOut(duration: 0.15), value: tracker.isLoading)
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// 挂顶部加载进度条（配合 WebViewRepresentable 的 progressTracker）
+    func webViewProgressOverlay(_ tracker: WebViewProgressTracker) -> some View {
+        overlay(alignment: .top) {
+            WebViewProgressOverlay(tracker: tracker)
+        }
+    }
+}
+
 struct WebViewRepresentable: UIViewRepresentable {
     let url: URL
     /// 是否同步登录 cookie（需要登录态的页面传 true）
@@ -137,6 +193,8 @@ struct WebViewRepresentable: UIViewRepresentable {
     /// WebView 内部浏览历史返回控制：传入后页面返回按钮可先 goBack
     /// （WebView 内跳转后逐级返回上一页），无历史再退出页面
     var navigationState: WebViewNavigationState? = nil
+    /// 加载进度跟踪（页面顶部细进度条用，见 WebViewProgressTracker）
+    var progressTracker: WebViewProgressTracker? = nil
     /// 页面加载完成后执行的 JS（documentEnd 注入主框架，仅首次导航触发；
     /// 用于自动触发页面交互，如弹出官网视频播放器）
     var pageLoadJS: String? = nil
@@ -339,6 +397,8 @@ struct WebViewRepresentable: UIViewRepresentable {
         let dialogDelegate = DialogDelegate()
         /// 内部浏览历史返回控制（页面返回按钮先 goBack 用）
         weak var navState: WebViewNavigationState?
+        /// 加载进度跟踪（didFail 时强制收尾进度条）
+        weak var progressTracker: WebViewProgressTracker?
         /// 滚动轴锁 delegate（必须保活——scrollView.delegate 是弱引用）
         var axisLockDelegate: AxisLockScrollDelegate?
 
@@ -349,6 +409,11 @@ struct WebViewRepresentable: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             navState?.canGoBack = webView.canGoBack
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            // 加载失败：进度条停在中间会一直显示，强制收尾隐藏
+            progressTracker?.finish()
         }
     }
 
@@ -497,6 +562,11 @@ struct WebViewRepresentable: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.navState = navigationState
         navigationState?.webView = webView
+        // 加载进度：KVO estimatedProgress（didFail 由导航代理兜底收尾）
+        if let progressTracker {
+            context.coordinator.progressTracker = progressTracker
+            progressTracker.observe(webView)
+        }
 
         context.coordinator.currentURL = url
         if syncCookies {
@@ -544,17 +614,20 @@ struct WebViewRepresentable: UIViewRepresentable {
 
 /// WebView 承载页通用骨架（push 进来的独立页面用）：
 /// 返回按钮 = WebView 有内部浏览历史先 goBack 逐级返回，无历史才退出页面
-/// （系统返回按钮无法拦截 NavigationStack pop，故统一改自定义返回钮）。
-/// 用法：WebViewScreen(title:) { state in WebViewRepresentable(..., navigationState: state, ...) }
+/// （系统返回按钮无法拦截 NavigationStack pop，故统一改自定义返回钮）；
+/// 顶部加载进度条（页面内跳转同样触发）。
+/// 用法：WebViewScreen(title:) { navState, tracker in WebViewRepresentable(..., navigationState: navState, progressTracker: tracker, ...) }
 struct WebViewScreen: View {
     let title: String
-    @ViewBuilder let webView: (WebViewNavigationState) -> WebViewRepresentable
+    @ViewBuilder let webView: (WebViewNavigationState, WebViewProgressTracker) -> WebViewRepresentable
 
     @StateObject private var navState = WebViewNavigationState()
+    @StateObject private var tracker = WebViewProgressTracker()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        webView(navState)
+        webView(navState, tracker)
+            .webViewProgressOverlay(tracker)
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
