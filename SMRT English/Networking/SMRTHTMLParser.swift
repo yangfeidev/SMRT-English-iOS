@@ -636,11 +636,14 @@ extension SMRTHTMLParser {
         html.contains("gradebook")
     }
 
-    /// classes 列表页是否学生号（学生号班级卡带「我」角标——"我在此班"；
-    /// 教师号管理多个班无此角标，实测教师 classes 页全文无「我」字）。
+    /// classes 列表页是否学生号：学生页有「Join a Class」加入班级入口
+    /// （classblock emptyblock addblock + span.join），教师页没有
+    /// （实测教师页 join/addblock 均 0 命中）。
+    /// 注意：班级卡「我」角标是官网 JS 动态渲染，服务端 HTML 里没有
+    /// （首次打开无、刷新才带上），不能用作特征。
     /// 用于登录后区分账号角色；班级 course 页的 gradebook 链接做硬校正。
     static func classesPageIndicatesStudent(_ html: String) -> Bool {
-        html.contains(">我<")
+        html.contains("addblock") || html.contains("Join a Class")
     }
 
     /// 教师端 Class List 成员行（表格：头像 / 姓名 / Id / Email；
