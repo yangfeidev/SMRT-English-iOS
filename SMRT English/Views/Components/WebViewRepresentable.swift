@@ -198,6 +198,12 @@ struct WebViewRepresentable: UIViewRepresentable {
     /// 页面加载完成后执行的 JS（documentEnd 注入主框架，仅首次导航触发；
     /// 用于自动触发页面交互，如弹出官网视频播放器）
     var pageLoadJS: String? = nil
+    /// 同页 tab 导航折叠（如官网 Assignments 的 Scheduled/Shared/Complete）：
+    /// 这些 tab 是 `<a href="?tab=xxx">` 的真实页面导航，每切一次都会在
+    /// WKWebView 里新增一条浏览历史，导致返回键逐级退回切换过的标签，
+    /// 而不是退出班级页。开启后把「同 path、仅 ?tab= 不同」的导航改写为
+    /// location.replace（替换当前历史项），返回键即直接退出本页。
+    var collapseTabHistory: Bool = false
     /// 独立非持久存储（游客态/隐私隔离用）
     var isolatedStorage: Bool = false
 
@@ -307,6 +313,41 @@ struct WebViewRepresentable: UIViewRepresentable {
         document.addEventListener('DOMContentLoaded', run);
       } else { run(); }
       window.addEventListener('load', run);
+    })();
+    """
+
+    /// 同页 tab 导航折叠：把「同 path、仅 ?tab= 不同」的站内链接改为
+    /// `location.replace`，避免每次切换都往 WKWebView 浏览历史里塞一条，
+    /// 导致返回键逐级退回切换过的标签而不是退出本页。
+    ///
+    /// 真机实测背景（Android 侧，教师 Assignments 的 Scheduled/Shared/Complete）：
+    /// 三个 tab 是 `<a href="?tab=xxx">` 真实导航，
+    ///   点击前 history.length=3 → 点 Complete → history.length=4
+    /// 于是 webView.canGoBack 恒为 true，返回键先 goBack（退到上个 tab）。
+    /// iOS 与 Android 同构，一并折叠（两端行为保持一致）。
+    ///
+    /// 只接管「点击时」的导航；其它站内跳转（如行点进课时详情，不同 path）
+    /// 不受影响，仍保留正常历史以便逐级返回。
+    ///
+    /// 注意：此脚本必须注册在捕获阶段（true），先于站点自身的 click handler。
+    static let collapseTabHistoryJS = """
+    (function() {
+      function isSamePathTabNav(a) {
+        try {
+          var href = a.getAttribute('href');
+          if (!href) { return false; }
+          var u = new URL(a.href, location.href);
+          if (u.pathname !== location.pathname) { return false; }
+          return u.searchParams.has('tab') || location.search.indexOf('tab=') >= 0;
+        } catch (e) { return false; }
+      }
+      document.addEventListener('click', function(ev) {
+        var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
+        if (!a || !isSamePathTabNav(a)) { return; }
+        /* 同 path 的 ?tab= 切换：替换当前历史项而非新增 */
+        ev.preventDefault();
+        location.replace(a.href);
+      }, true);
     })();
     """
 
@@ -539,6 +580,14 @@ struct WebViewRepresentable: UIViewRepresentable {
             config.userContentController.addUserScript(
                 WKUserScript(source: pageLoadJS,
                              injectionTime: .atDocumentEnd,
+                             forMainFrameOnly: true))
+        }
+        if collapseTabHistory {
+            // documentStart 注入：捕获阶段 click 监听，先于站点自身 handler
+            // （对齐 Android WebViewHelper.COLLAPSE_TAB_HISTORY_JS）
+            config.userContentController.addUserScript(
+                WKUserScript(source: Self.collapseTabHistoryJS,
+                             injectionTime: .atDocumentStart,
                              forMainFrameOnly: true))
         }
         let webView = WKWebView(frame: .zero, configuration: config)

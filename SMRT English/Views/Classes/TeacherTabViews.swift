@@ -38,6 +38,9 @@ private struct TeacherPageWebView: View {
     var viewportScale: CGFloat? = nil
     /// WebView 内部浏览历史返回控制（外层返回按钮先 goBack 用）
     var navigationState: WebViewNavigationState? = nil
+    /// 同页 tab 导航折叠（Assignments 的 Scheduled/Shared/Complete 是
+    /// ?tab= 真实导航，不折叠则返回键逐级退回切换过的标签而非退出本页）
+    var collapseTabHistory: Bool = false
     /// 加载进度条
     @StateObject private var progressTracker = WebViewProgressTracker()
 
@@ -54,7 +57,8 @@ private struct TeacherPageWebView: View {
             viewportScale: viewportScale,
             navigationState: navigationState,
             progressTracker: progressTracker,
-            pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
+            pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS,
+            collapseTabHistory: collapseTabHistory)
             .webViewProgressOverlay(progressTracker)
     }
 }
@@ -114,7 +118,8 @@ struct TeacherAssignmentsTabView: View {
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 992,
                            viewportScale: 0.9,
-                           navigationState: navigationState)
+                           navigationState: navigationState,
+                           collapseTabHistory: true)
             .modifier(TeacherWideTableModifier())
     }
 }
