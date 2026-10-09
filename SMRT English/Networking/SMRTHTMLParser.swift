@@ -36,7 +36,12 @@ import Foundation
 struct RegexMatch {
     let full: Substring
     let groups: [Substring?]   // groups[0] 对应捕获组 1
-    subscript(_ i: Int) -> Substring? { groups[i - 1] }
+    /// 防御：pattern 无捕获组（或索引越界）时返回 nil 而非崩溃
+    subscript(_ i: Int) -> Substring? {
+        let idx = i - 1
+        guard idx >= 0, idx < groups.count else { return nil }
+        return groups[idx]
+    }
 }
 
 enum SMRTHTMLParser {
@@ -538,7 +543,8 @@ extension SMRTHTMLParser {
                                    sections: sections))
         }
         return ClassCourse(className: className, courseName: courseName,
-                           courseLibraryId: courseLibraryId, units: units)
+                           courseLibraryId: courseLibraryId, units: units,
+                           isTeacher: isTeacherHTML(html))
     }
 }
 
@@ -615,13 +621,42 @@ extension SMRTHTMLParser {
             }
     }
 
-    /// Attendance 页是否为空态（官网文案 No Attendance Records）
-    static func parseClassAttendanceEmpty(html: String) -> Bool {
-        html.contains("No Attendance Records")
+    // MARK: 6c. 教师端子页（角色判定 / Class List 原生列表）
+    //
+    // 2026-10-08 教师账号实测结构：
+    // - 角色判定：班级页侧栏含 gradebook 入口（学生端 6 项、教师端 7 项）
+    // - Assignments / Attendance / Assessments / Gradebook 交互繁多
+    //   → WebView 承载官网自理，不做解析
+    //   （原学生端 Attendance/Assessments 空态判定函数随之移除——两角色
+    //   均改 WebView 承载，结构随官网任意变化免维护）
+    // - Class List：纯展示表格（头像/姓名/Id/Email），原生化解析如下
+
+    /// 是否教师端（班级页侧栏含 Gradebook 入口）
+    static func isTeacherHTML(_ html: String) -> Bool {
+        html.contains("gradebook")
     }
 
-    /// Assessments 页是否为空态（官网文案 No Assessment Results）
-    static func parseClassAssessmentsEmpty(html: String) -> Bool {
-        html.contains("No Assessment Results")
+    /// 教师端 Class List 成员行（表格：头像 / 姓名 / Id / Email；
+    /// Current 与 Removed 两个 ?tab= 页同构，解析函数共用）
+    static func parseTeacherClassList(html: String) -> [TeacherClassListMember] {
+        var members: [TeacherClassListMember] = []
+        for rowMatch in matches(#"<tr[^>]*>([\s\S]*?)</tr>"#, in: html) {
+            let row = String(rowMatch[1] ?? "")
+            // 行内首个 data-tippy-content 即姓名（td[1] 的名字 tooltip）
+            guard let studentId = firstGroup(#"view=student&id=(\d+)"#, row),
+                  let nameRaw = firstGroup(#"data-tippy-content="([^"]*)""#, row) else { continue }
+            let name = normalizeChineseName(stripTags(nameRaw).trimmingCharacters(in: .whitespacesAndNewlines))
+            guard !name.isEmpty else { continue }
+            let tds = matches(#"<td[^>]*>([\s\S]*?)</td>"#, in: row).map { String($0[1] ?? "") }
+            // 列序：头像 / 姓名 / Id / Email / 操作
+            let number = tds.count > 2 ? stripTags(tds[2]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            let email = tds.count > 3 ? stripTags(tds[3]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            let avatar = firstGroup(#"<img src="([^"]+)"[^>]*class="[^"]*profilecircle"#, row)
+                .flatMap { URL(string: decodeEntities($0)) }
+            members.append(TeacherClassListMember(id: studentId, name: name,
+                                                  number: number, email: email,
+                                                  avatarURL: avatar))
+        }
+        return members
     }
 }

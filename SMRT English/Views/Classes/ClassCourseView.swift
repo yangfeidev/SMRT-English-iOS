@@ -29,10 +29,26 @@ struct ClassCourseView: View {
     @State private var expandedUnitIDs: Set<String> = []
     /// 当前子 Tab
     @State private var selectedTab: ClassTab = .course
+    /// 是否教师端（course 页解析出的侧栏 Gradebook 标记；加载前按学生端展示）
+    @State private var isTeacher = false
+    /// 横屏状态（教师宽表格页锁横屏时切换紧凑顶栏）
+    @ObservedObject private var orientationLock = OrientationLock.shared
+    @Environment(\.dismiss) private var dismiss
+
+    /// 可见 tab：教师端多一个 Gradebook（学生端 6 项、教师端 7 项）
+    private var visibleTabs: [ClassTab] {
+        ClassTab.allCases.filter { $0 != .gradebook || isTeacher }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            tabBar
+            // 横屏：返回按钮与胶囊 tab 合并一行（系统导航栏整条隐藏，
+            // 竖向空间让给内容）；竖屏：系统导航栏 + 胶囊 tab 两行
+            if orientationLock.landscapeOnly {
+                compactTopBar
+            } else {
+                tabBar
+            }
             Group {
                 switch selectedTab {
                 case .course:
@@ -41,13 +57,31 @@ struct ClassCourseView: View {
                         courseContent
                     }
                 case .classList:
-                    ClassListTabView(classId: klass.id)
+                    if isTeacher {
+                        TeacherClassListTabView(classId: klass.id)
+                    } else {
+                        ClassListTabView(classId: klass.id)
+                    }
                 case .attendance:
-                    AttendanceTabView(classId: klass.id)
+                    if isTeacher {
+                        TeacherAttendanceTabView(classId: klass.id)
+                    } else {
+                        AttendanceTabView(classId: klass.id)
+                    }
                 case .assignments:
-                    AssignmentsTabView(classId: klass.id)
+                    if isTeacher {
+                        TeacherAssignmentsTabView(classId: klass.id)
+                    } else {
+                        AssignmentsTabView(classId: klass.id)
+                    }
                 case .assessments:
-                    AssessmentsTabView(classId: klass.id)
+                    if isTeacher {
+                        TeacherAssessmentsTabView(classId: klass.id)
+                    } else {
+                        AssessmentsTabView(classId: klass.id)
+                    }
+                case .gradebook:
+                    TeacherGradebookTabView(classId: klass.id)
                 case .classInfo:
                     ClassInfoTabView(classId: klass.id)
                 }
@@ -57,8 +91,27 @@ struct ClassCourseView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle(klass.name)
         .navigationBarTitleDisplayMode(.inline)
+        // 横屏隐藏系统导航栏（大标题+返回按钮条），由 compactTopBar 的返回按钮接管；
+        // 横屏同时隐藏底部 tab bar，显示区域更大
+        .toolbar(orientationLock.landscapeOnly ? .hidden : .visible, for: .navigationBar)
+        .toolbar(orientationLock.landscapeOnly ? .hidden : .visible, for: .tabBar)
         .task {
             if selectedTab == .course, course == nil { await load() }
+        }
+        .onDisappear {
+            // 离开班级页（返回列表/push 课时详情）恢复竖屏；
+            // tab 间互切不在此处（横屏时 Attendance↔Assignments 互切保持横屏）
+            if orientationLock.landscapeOnly {
+                setInterfaceOrientation(false)
+            }
+        }
+        .onChange(of: selectedTab) { tab in
+            // 横屏时切到不支持横屏的 tab（Course/Class List/Assessments/Gradebook）
+            // 恢复竖屏；Assignments↔Attendance 互切保持横屏
+            if orientationLock.landscapeOnly,
+               !(isTeacher && (tab == .assignments || tab == .attendance)) {
+                setInterfaceOrientation(false)
+            }
         }
         .onChange(of: selectedTab) { tab in
             // 切回 Course 且无数据（如上次加载失败）时补拉
@@ -70,11 +123,47 @@ struct ClassCourseView: View {
 
     // MARK: - 子 Tab 栏
 
+    /// 竖屏顶栏：系统导航栏（标题+返回）下方单独一行胶囊 tab
     private var tabBar: some View {
+        tabScroll(horizontalPadding: 16)
+            .background(Theme.background)
+    }
+
+    /// 横屏紧凑顶栏：返回按钮与胶囊 tab 合并一行（系统导航栏已隐藏，
+    /// 大标题不再显示，竖向空间让给内容）。
+    /// 横屏下点返回不直接退出：先恢复竖屏（再点系统返回才真正返回）
+    private var compactTopBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                if orientationLock.landscapeOnly {
+                    setInterfaceOrientation(false)
+                } else {
+                    dismiss()
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 30, height: 30)
+                    .background(Theme.card)
+                    .clipShape(Circle())
+                    .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 12)
+            .accessibilityIdentifier("class.back")
+
+            tabScroll(horizontalPadding: 4)
+        }
+        .padding(.vertical, 6)
+        .background(Theme.background)
+    }
+
+    private func tabScroll(horizontalPadding: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(ClassTab.allCases) { tab in
+                    ForEach(visibleTabs) { tab in
                         let isActive = selectedTab == tab
                         Button {
                             selectedTab = tab
@@ -92,7 +181,7 @@ struct ClassCourseView: View {
                         .accessibilityIdentifier("class.tab.\(tab.title)")
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, 8)
             }
             .onChange(of: selectedTab) { tab in
@@ -301,6 +390,7 @@ struct ClassCourseView: View {
         do {
             let result = try await SMRTClient.shared.classCourse(classId: klass.id)
             course = result
+            isTeacher = result.isTeacher
             // 默认展开第一个单元（官网 accordion 行为）
             if let first = result.units.first {
                 expandedUnitIDs = [first.id]

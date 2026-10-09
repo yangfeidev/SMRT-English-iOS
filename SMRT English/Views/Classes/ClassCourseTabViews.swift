@@ -2,9 +2,10 @@
 //  ClassCourseTabViews.swift
 //  SMRT English
 //
-//  班级页子 Tab 的原生视图（对齐官网 /sunshine/class/{id}/ 的 5 个子页面）
+//  班级页子 Tab 的原生视图（对齐官网 /sunshine/class/{id}/ 的子页面）
 //  - 每个视图自带懒加载（.task 首次出现时拉取），结构简单均为只读展示
-//  - Attendance / Assessments 当前官网即空态，数据出现后再扩展原生渲染
+//  - Class List / Assignments / Class Info 原生解析渲染；
+//    Attendance / Assessments 学生端改 WebView 承载（见各视图注释）
 //
 
 import SwiftUI
@@ -222,90 +223,40 @@ struct AssignmentsTabView: View {
     }
 }
 
-// MARK: - Attendance（考勤，当前官网为空态）
+// MARK: - Attendance（考勤，WebView 承载）
 
+/// 学生端 Attendance：官网按角色返回内容（学生=本人考勤记录），
+/// 此前解析器未覆盖记录结构（一直空态占位），改 WebView 登录态承载，
+/// 隐藏站点 chrome 只留内容，结构随官网改版免维护
 struct AttendanceTabView: View {
     let classId: String
 
-    @State private var hasRecords: Bool?
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-
     var body: some View {
-        ClassTabPageContainer(load: { await load() },
-                              isLoading: $isLoading,
-                              errorMessage: $errorMessage) {
-            switch hasRecords {
-            case .some(true):
-                // 有考勤记录（当前班级暂无数据，出现后需按实际结构扩展原生渲染）
-                Text("考勤记录请在网页端查看")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            default:
-                emptyState("No Attendance Records", icon: "calendar.badge.exclamationmark")
-            }
-        }
-        .task { if hasRecords == nil { await load() } }
-    }
-
-    private func load() async {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-        do {
-            let html = try await SMRTClient.shared.classPageHTML(classId: classId, tab: .attendance)
-            let empty = await Task.detached(priority: .userInitiated) {
-                SMRTHTMLParser.parseClassAttendanceEmpty(html: html)
-            }.value
-            hasRecords = !empty
-        } catch {
-            if error.isCancellation { return }
-            errorMessage = error.localizedDescription
-        }
+        WebViewRepresentable(
+            url: SMRTClient.shared.baseURL.appendingPathComponent("/sunshine/class/\(classId)/attendance/"),
+            syncCookies: true,
+            pageBackgroundColor: .white,
+            hideSiteHeader: true,
+            extraCSS: WebViewRepresentable.classPageHideChromeCSS,
+            pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
     }
 }
 
-// MARK: - Assessments（测评，当前官网为空态）
+// MARK: - Assessments（测评，WebView 承载）
 
+/// 学生端 Assessments：官网按角色返回内容（学生=本人测评结果），
+/// 同 Attendance 改 WebView 承载（官网路径是 evaluation）
 struct AssessmentsTabView: View {
     let classId: String
 
-    @State private var hasResults: Bool?
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-
     var body: some View {
-        ClassTabPageContainer(load: { await load() },
-                              isLoading: $isLoading,
-                              errorMessage: $errorMessage) {
-            switch hasResults {
-            case .some(true):
-                Text("测评结果请在网页端查看")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            default:
-                emptyState("No Assessment Results", icon: "checklist.badge.questionmark")
-            }
-        }
-        .task { if hasResults == nil { await load() } }
-    }
-
-    private func load() async {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-        do {
-            let html = try await SMRTClient.shared.classPageHTML(classId: classId, tab: .assessments)
-            let empty = await Task.detached(priority: .userInitiated) {
-                SMRTHTMLParser.parseClassAssessmentsEmpty(html: html)
-            }.value
-            hasResults = !empty
-        } catch {
-            if error.isCancellation { return }
-            errorMessage = error.localizedDescription
-        }
+        WebViewRepresentable(
+            url: SMRTClient.shared.baseURL.appendingPathComponent("/sunshine/class/\(classId)/evaluation/"),
+            syncCookies: true,
+            pageBackgroundColor: .white,
+            hideSiteHeader: true,
+            extraCSS: WebViewRepresentable.classPageHideChromeCSS,
+            pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
     }
 }
 
@@ -362,19 +313,4 @@ struct ClassInfoTabView: View {
             errorMessage = error.localizedDescription
         }
     }
-}
-
-// MARK: - 通用空态
-
-@ViewBuilder
-private func emptyState(_ text: String, icon: String) -> some View {
-    VStack(spacing: 12) {
-        Image(systemName: icon)
-            .font(.system(size: 40))
-            .foregroundStyle(Theme.textSecondary.opacity(0.6))
-        Text(text)
-            .font(.subheadline)
-            .foregroundStyle(Theme.textSecondary)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
 }

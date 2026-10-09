@@ -9,6 +9,18 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
 
+schemes:
+  SMRT English:
+    build:
+      targets:
+        SMRT English: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - SMRT EnglishUITests
+
 targets:
   SMRT English:
     type: application

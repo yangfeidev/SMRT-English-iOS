@@ -30,6 +30,23 @@ struct WebViewRepresentable: UIViewRepresentable {
     var hideSiteHeader: Bool = false
     /// 追加注入的 CSS
     var extraCSS: String = ""
+    /// 数据表格页宽视口（教师端宽表格页用）：documentStart 先按官网原生
+    /// device-width 渲染，页面 load 后**仅在存在数据表格时**（.rightside table）
+    /// 把视口收缩到 [下限, 上限] 区间内的内容真实宽——命中官网桌面媒体查询
+    /// 断点，完整列/操作按钮原生显示（手机断点会把 Start/Due 列、文字按钮
+    /// 藏进简化块），竖屏屏宽不够时 WebView 内左右滑动查看。
+    /// 无表格的页面（如 Attendance 打卡模式的卡片流）保持官网手机版自适应
+    /// 不切换——卡片是流式全宽元素，宽视口下会被拉超宽在窄屏上残缺。
+    var fixedViewportWidth: CGFloat? = nil
+    /// 视口收缩下限（配合 fixedViewportWidth）：官网断点安全线——Assignments
+    /// 的 Start/Due 列 hidden-xs hidden-sm（需 ≥992）、Attendance 的 Ref 列
+    /// hidden-xs（需 ≥768），低于下限会触发官网手机断点把列藏掉；
+    /// nil = 固定视口不收缩
+    var viewportShrinkLowerBound: CGFloat? = nil
+    /// 宽视口的显示缩放（配合 fixedViewportWidth，默认 nil=1）：
+    /// 1:1 渲染在手机上偏大，切宽视口时用 initial-scale/minimum-scale=该值
+    /// 整体等比缩小（如 0.75 → 992 内容缩至 744pt 宽，可见列更多、字号适中）
+    var viewportScale: CGFloat? = nil
     /// 页面加载完成后执行的 JS（documentEnd 注入主框架，仅首次导航触发；
     /// 用于自动触发页面交互，如弹出官网视频播放器）
     var pageLoadJS: String? = nil
@@ -81,18 +98,146 @@ struct WebViewRepresentable: UIViewRepresentable {
             + "}",
     ].joined()
 
-    /// documentStart 注入脚本：head 一就绪就挂上 style，首屏渲染前生效、无闪烁
+    /// 班级子页通用隐藏 CSS（教师端 WebView 承载页 & 学生端补齐页共用）：
+    /// - .leftside：页面内左侧栏（含手机形态的汉堡按钮 navbar-toggle、班级名、
+    ///   #menu 折叠菜单——由官网 JS 注入 DOM，CSS 选择器对动态元素同样生效）；
+    ///   隐藏后 .rightside 撑满整行，避免右侧空出 25% 列宽
+    /// - footer：站点深色页脚（链接矩阵 + logo）
+    /// - h1.page-title：页面大标题（App 顶部导航已有班级名，避免重复）
+    static let classPageHideChromeCSS = [
+        ".leftside{display:none !important;}",
+        ".rightside{width:100% !important;}",
+        "footer{display:none !important;}",
+        "h1.page-title{display:none !important;}",
+    ].joined()
+
+    /// Assessments 页右上角 Add Assessment / Help 圆形图标按钮
+    /// （教师端操作入口，App 内不用 → 去掉图标只留内容）
+    static let classPageHideCircleButtonsCSS =
+        ".rightside div[class*='col-'] > a.btn-circle{display:none !important;}"
+
+    /// 教师端 Attendance 记录表列宽修正：
+    /// 官网 th 自带 width 属性（Date/Full Name/Ref/Status 四列各 20%/40%/20%/20%），
+    /// Ref 列手机端常为空仍占 ~205px——解除 width 属性按内容分配，
+    /// Ref 列（td 内 .ellipsis.s75）单独限宽 90px
+    static let teacherAttendanceColumnsCSS = [
+        ".rightside table th[width],.rightside table td[width]{width:auto !important;}",
+        ".rightside table td:has(> div.ellipsis.s75){width:90px !important;}",
+    ].joined()
+
+    /// 教师端宽表格收缩：官网 table width:100% 拉满固定视口（1024），
+    /// 内容窄的列（如 Attendance 的 Date "Oct 8th 2026"）被均分拉出大片列间
+    /// 空白——收缩为按内容自适应宽度，配合 viewportShrinkLowerBound 收缩
+    /// 视口，消除空旷区域与超长横向滚动
+    static let teacherTableShrinkCSS =
+        ".rightside table{width:auto !important;min-width:0 !important;}"
+
+    /// 官网姓名西式「名 姓」→ 中式「姓名」（仅两段纯汉字时交换，
+    /// 与 Swift 侧 normalizeChineseName 规则一致）。
+    /// 覆盖两类服务端静态输出：打卡卡片 p.miniprofile-title、
+    /// 记录表 a[href*="view=student"] strong span
+    static let chineseNameNormalizeJS = """
+    (function() {
+      function cnName(s) {
+        var parts = s.replace(/\\s+/g, ' ').trim().split(' ');
+        if (parts.length === 2 &&
+            /^[\\u4e00-\\u9fa5]{1,4}$/.test(parts[0]) &&
+            /^[\\u4e00-\\u9fa5]{1,4}$/.test(parts[1])) {
+          return parts[1] + parts[0];
+        }
+        return null;
+      }
+      function fix(el) {
+        var name = cnName(el.textContent);
+        if (name) { el.textContent = name; }
+      }
+      function run() {
+        document.querySelectorAll('p.miniprofile-title').forEach(fix);
+        document.querySelectorAll('a[href*="view=student"] strong span').forEach(fix);
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run);
+      } else { run(); }
+      window.addEventListener('load', run);
+    })();
+    """
+
+    /// documentStart 注入脚本：head 一就绪就挂上 style，首屏渲染前生效、无闪烁。
+    /// CSS 经 JSON 编码为合法 JS 字符串字面量——内容含单引号/双引号/换行均安全
+    /// （踩坑：extraCSS 的 [class*='col-'] 单引号会截断单引号 JS 字符串，
+    /// 整段注入脚本 SyntaxError，header 隐藏与 extraCSS 一起失效）
     private static func hideHeaderScript(extraCSS: String) -> String {
-        // CSS 里不含单引号，可直接拼进 JS 字符串
         let css = baseHideCSS + extraCSS
+        let literal: String
+        if let data = try? JSONEncoder().encode(css),
+           let s = String(data: data, encoding: .utf8) {
+            literal = s
+        } else {
+            literal = "\"\""
+        }
         return """
         (function() {
           var style = document.createElement('style');
-          style.textContent = '\(css)';
+          style.textContent = \(literal);
           (function append() {
             if (document.head) { document.head.appendChild(style); }
             else { setTimeout(append, 0); }
           })();
+        })();
+        """
+    }
+
+    /// documentStart 注入脚本：先按官网原生 device-width 渲染；load 后若
+    /// 页面含数据表格（.rightside table）→ 量内容真实宽把视口切到
+    /// [下限, 上限]（可选 viewportScale 等比缩放），无表格（打卡卡片流/
+    /// 空态）→ 保持手机版自适应不切换。
+    /// （官网 JS 可能后写 viewport，故 DOMContentLoaded/load 后再设）
+    private static func viewportScript(width: CGFloat,
+                                       shrinkToLowerBound: CGFloat?,
+                                       displayScale: CGFloat?) -> String {
+        let shrinkBlock: String
+        if let shrinkToLowerBound {
+            let scale = displayScale ?? 1
+            shrinkBlock = """
+              // 有数据表格才切宽视口：#content 临时 max-content 量宽后还原
+              function adjust() {
+                var c = document.querySelector('#content');
+                var table = document.querySelector('.rightside table');
+                if (!c || !table) { return; }
+                c.style.width = 'max-content';
+                var w = Math.ceil(c.getBoundingClientRect().width);
+                c.style.width = '';
+                if (w > 320) {
+                  // minimum-scale 阻止 WebKit 的 fit-to-width 自动缩小：
+                  // 动态切宽视口时 WebKit 会把整页缩小塞进屏幕，
+                  // initial-scale/minimum-scale=指定值 强制等比渲染 + 左右滚动
+                  var spec = 'width=' + Math.max(\(Int(shrinkToLowerBound)), Math.min(w, \(Int(width)))) +
+                             ', initial-scale=\(scale), minimum-scale=\(scale)';
+                  setViewport(spec);
+                }
+                window.scrollTo(0, 0);
+              }
+              window.addEventListener('load', adjust);
+              setTimeout(adjust, 900);
+            """
+        } else {
+            shrinkBlock = ""
+        }
+        return """
+        (function() {
+          function setViewport(spec) {
+            var metas = document.querySelectorAll('meta[name="viewport"]');
+            for (var i = 0; i < metas.length; i++) { metas[i].remove(); }
+            var m = document.createElement('meta');
+            m.name = 'viewport';
+            m.content = spec;
+            (document.head || document.documentElement).appendChild(m);
+          }
+          setViewport('width=device-width, initial-scale=1');
+          document.addEventListener('DOMContentLoaded', function() {
+            setViewport('width=device-width, initial-scale=1');
+          });
+          \(shrinkBlock)
         })();
         """
     }
@@ -211,6 +356,14 @@ struct WebViewRepresentable: UIViewRepresentable {
                              injectionTime: .atDocumentStart,
                              forMainFrameOnly: true))
         }
+        if let fixedViewportWidth {
+            config.userContentController.addUserScript(
+                WKUserScript(source: Self.viewportScript(width: fixedViewportWidth,
+                                                         shrinkToLowerBound: viewportShrinkLowerBound,
+                                                         displayScale: viewportScale),
+                             injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true))
+        }
         if let pageLoadJS {
             config.userContentController.addUserScript(
                 WKUserScript(source: pageLoadJS,
@@ -220,6 +373,11 @@ struct WebViewRepresentable: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.backgroundColor = pageBackgroundColor
         webView.isOpaque = false
+        if fixedViewportWidth != nil {
+            // 固定视口下禁 WebKit 缩放适配：内容 1:1 渲染，靠 scrollView 左右滚动
+            webView.scrollView.minimumZoomScale = 1
+            webView.scrollView.maximumZoomScale = 1
+        }
         // JS 对话框桥接：官网练习「Complete」提交走 confirm()，未实现 uiDelegate 时
         // WebKit 静默返回 false → 提交永远不执行（真机踩坑）
         webView.uiDelegate = context.coordinator.dialogDelegate

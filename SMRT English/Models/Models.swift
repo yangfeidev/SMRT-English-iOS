@@ -159,13 +159,15 @@ struct CourseUnit: Identifiable, Hashable {
 
 /// 班级页子 Tab（rawValue = 官网 URL 路径段）
 /// 官网班级页左侧菜单：Course / Class List / Attendance / Assignments / Assessments / Class Info
-/// 注意 Assessments 的官网路径是 evaluation
+/// 注意 Assessments 的官网路径是 evaluation；
+/// Gradebook 为教师端独有第 7 项（学生端隐藏，见 ClassCourseView.visibleTabs）
 enum ClassTab: String, CaseIterable, Identifiable {
     case course = "course"
     case classList = "classlist"
     case attendance = "attendance"
     case assignments = "assignments"
     case assessments = "evaluation"
+    case gradebook = "gradebook"
     case classInfo = "classinfo"
 
     var id: String { rawValue }
@@ -177,6 +179,7 @@ enum ClassTab: String, CaseIterable, Identifiable {
         case .attendance: return "Attendance"
         case .assignments: return "Assignments"
         case .assessments: return "Assessments"
+        case .gradebook: return "Gradebook"
         case .classInfo: return "Class Info"
         }
     }
@@ -277,6 +280,31 @@ struct ClassCourse: Equatable {
     /// 课程在 Library 的 id（页面 folder_open 按钮的 /sunshine/library/{id}）
     let courseLibraryId: String
     let units: [ClassUnit]
+    /// 是否教师端（班级页侧栏含 Gradebook 入口——学生端 6 项、教师端 7 项）
+    let isTeacher: Bool
+}
+
+// MARK: - 教师端（/sunshine/class/{id}/ 教师视角）
+//
+// 2026-10-08 教师账号实测（curl 登录抓页）：
+// - 角色判定：班级页侧栏含 gradebook 入口（学生端 6 项、教师端 7 项）
+// - Assignments：三态服务端 tab（?tab=scheduled/in-progress/complete-assignments，
+//   badge 计数 smrt-scheduled/in-progress/complete），行内删除/公布答案/
+//   成绩查看等交互繁多
+// - Attendance：Take Attendance 点图打卡 / 记录表改状态 / 搜索
+// - Assignments / Attendance / Assessments / Gradebook 均为重交互页面
+//   → WebView 登录态承载官网自理（隐藏站点 chrome 只留内容）；
+//   Class List 为纯展示表格 → 原生简单列表
+
+/// 教师端 Class List 成员行（表格视图：头像 / 姓名 / Id / Email）
+struct TeacherClassListMember: Identifiable, Hashable {
+    /// 学生 id（view=student 链接）
+    let id: String
+    let name: String
+    /// 学生 Id 列（官网当前显示为空）
+    let number: String
+    let email: String
+    let avatarURL: URL?
 }
 
 // MARK: - 登录账号
