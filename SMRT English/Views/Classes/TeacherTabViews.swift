@@ -34,7 +34,7 @@ private struct TeacherPageWebView: View {
     var fixedViewportWidth: CGFloat? = nil
     /// 视口收缩下限（见 WebViewRepresentable.viewportShrinkLowerBound 注释）
     var viewportShrinkLowerBound: CGFloat? = nil
-    /// 宽视口显示缩放（0.8 = 内容整体缩小到 80%，手机观感更合适）
+    /// 宽视口显示缩放（0.85 = 内容整体缩小到 85%，手机观感更合适）
     var viewportScale: CGFloat? = nil
     /// WebView 内部浏览历史返回控制（外层返回按钮先 goBack 用）
     var navigationState: WebViewNavigationState? = nil
@@ -109,7 +109,7 @@ struct TeacherAssignmentsTabView: View {
                            extraCSS: WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 992,
-                           viewportScale: 0.8,
+                           viewportScale: 0.85,
                            navigationState: navigationState)
             .modifier(TeacherWideTableModifier())
     }
@@ -127,7 +127,7 @@ struct TeacherAttendanceTabView: View {
                                + WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 768,
-                           viewportScale: 0.8,
+                           viewportScale: 0.85,
                            navigationState: navigationState)
             .modifier(TeacherWideTableModifier())
     }
