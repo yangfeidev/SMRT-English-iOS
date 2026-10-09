@@ -127,7 +127,8 @@ struct WebViewRepresentable: UIViewRepresentable {
     var viewportShrinkLowerBound: CGFloat? = nil
     /// 宽视口的显示缩放（配合 fixedViewportWidth，默认 nil=1）：
     /// 1:1 渲染在手机上偏大，切宽视口时用 initial-scale/minimum-scale=该值
-    /// 整体等比缩小（如 0.75 → 992 内容缩至 744pt 宽，可见列更多、字号适中）
+    /// 整体等比缩小（如 0.85 → 992 内容缩至 843pt 宽，可见列更多、字号适中）；
+    /// 仅手机生效（iPad 自动 1:1，屏幕大无需缩放）
     var viewportScale: CGFloat? = nil
     /// WebView 内部浏览历史返回控制：传入后页面返回按钮可先 goBack
     /// （WebView 内跳转后逐级返回上一页），无历史再退出页面
@@ -455,10 +456,13 @@ struct WebViewRepresentable: UIViewRepresentable {
                              forMainFrameOnly: true))
         }
         if let fixedViewportWidth {
+            // 显示缩放仅手机生效：iPad 屏幕大，1:1 渲染正合适，再缩反而字太小
+            let displayScale: CGFloat? = (UIDevice.current.userInterfaceIdiom == .pad)
+                ? nil : viewportScale
             config.userContentController.addUserScript(
                 WKUserScript(source: Self.viewportScript(width: fixedViewportWidth,
                                                          shrinkToLowerBound: viewportShrinkLowerBound,
-                                                         displayScale: viewportScale),
+                                                         displayScale: displayScale),
                              injectionTime: .atDocumentStart,
                              forMainFrameOnly: true))
         }
