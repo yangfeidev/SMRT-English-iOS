@@ -80,13 +80,13 @@ struct ProfileSection: View {
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
                     // 角色徽标：classes 页「我」角标判定（学生）/侧栏 Gradebook
-                    // 链接判定（教师），教师橙/学生灰一眼可辨
+                    // 链接判定（教师），教师橙/学生蓝一眼可辨
                     Text(isTeacher ? "教师" : "学生")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(isTeacher ? Color.orange : Theme.textSecondary)
+                        .foregroundStyle(isTeacher ? Color.orange : Theme.accent)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background((isTeacher ? Color.orange : Theme.textSecondary).opacity(0.15))
+                        .background((isTeacher ? Color.orange : Theme.accent).opacity(0.18))
                         .clipShape(Capsule())
                 }
                 Text("sunshine 校区")
