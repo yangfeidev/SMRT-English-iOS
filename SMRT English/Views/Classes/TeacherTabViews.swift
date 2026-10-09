@@ -36,6 +36,8 @@ private struct TeacherPageWebView: View {
     var viewportShrinkLowerBound: CGFloat? = nil
     /// 宽视口显示缩放（0.8 = 内容整体缩小到 80%，手机观感更合适）
     var viewportScale: CGFloat? = nil
+    /// WebView 内部浏览历史返回控制（外层返回按钮先 goBack 用）
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
         WebViewRepresentable(
@@ -48,6 +50,7 @@ private struct TeacherPageWebView: View {
             fixedViewportWidth: fixedViewportWidth,
             viewportShrinkLowerBound: viewportShrinkLowerBound,
             viewportScale: viewportScale,
+            navigationState: navigationState,
             pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
     }
 }
@@ -99,13 +102,15 @@ private struct TeacherWideTableModifier: ViewModifier {
 
 struct TeacherAssignmentsTabView: View {
     let classId: String
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
         TeacherPageWebView(classId: classId, segment: "assignments",
                            extraCSS: WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 992,
-                           viewportScale: 0.8)
+                           viewportScale: 0.8,
+                           navigationState: navigationState)
             .modifier(TeacherWideTableModifier())
     }
 }
@@ -114,6 +119,7 @@ struct TeacherAssignmentsTabView: View {
 
 struct TeacherAttendanceTabView: View {
     let classId: String
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
         TeacherPageWebView(classId: classId, segment: "attendance",
@@ -121,7 +127,8 @@ struct TeacherAttendanceTabView: View {
                                + WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 768,
-                           viewportScale: 0.8)
+                           viewportScale: 0.8,
+                           navigationState: navigationState)
             .modifier(TeacherWideTableModifier())
     }
 }
@@ -130,10 +137,12 @@ struct TeacherAttendanceTabView: View {
 
 struct TeacherAssessmentsTabView: View {
     let classId: String
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
         TeacherPageWebView(classId: classId, segment: "evaluation",
-                           extraCSS: WebViewRepresentable.classPageHideCircleButtonsCSS)
+                           extraCSS: WebViewRepresentable.classPageHideCircleButtonsCSS,
+                           navigationState: navigationState)
     }
 }
 
@@ -141,9 +150,11 @@ struct TeacherAssessmentsTabView: View {
 
 struct TeacherGradebookTabView: View {
     let classId: String
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
-        TeacherPageWebView(classId: classId, segment: "gradebook")
+        TeacherPageWebView(classId: classId, segment: "gradebook",
+                           navigationState: navigationState)
     }
 }
 

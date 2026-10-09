@@ -230,6 +230,7 @@ struct AssignmentsTabView: View {
 /// 隐藏站点 chrome 只留内容，结构随官网改版免维护
 struct AttendanceTabView: View {
     let classId: String
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
         WebViewRepresentable(
@@ -238,6 +239,7 @@ struct AttendanceTabView: View {
             pageBackgroundColor: .white,
             hideSiteHeader: true,
             extraCSS: WebViewRepresentable.classPageHideChromeCSS,
+            navigationState: navigationState,
             pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
     }
 }
@@ -248,6 +250,7 @@ struct AttendanceTabView: View {
 /// 同 Attendance 改 WebView 承载（官网路径是 evaluation）
 struct AssessmentsTabView: View {
     let classId: String
+    var navigationState: WebViewNavigationState? = nil
 
     var body: some View {
         WebViewRepresentable(
@@ -256,6 +259,7 @@ struct AssessmentsTabView: View {
             pageBackgroundColor: .white,
             hideSiteHeader: true,
             extraCSS: WebViewRepresentable.classPageHideChromeCSS,
+            navigationState: navigationState,
             pageLoadJS: WebViewRepresentable.chineseNameNormalizeJS)
     }
 }

@@ -33,7 +33,21 @@ struct ClassCourseView: View {
     @State private var isTeacher = false
     /// 横屏状态（教师宽表格页锁横屏时切换紧凑顶栏）
     @ObservedObject private var orientationLock = OrientationLock.shared
+    /// 子 Tab WebView 的内部浏览历史（返回按钮先 goBack 再退出页面）
+    @StateObject private var webNavState = WebViewNavigationState()
     @Environment(\.dismiss) private var dismiss
+
+    /// 返回按钮统一动作：当前 tab 的 WebView 有内部浏览历史（如教师
+    /// Assignments 行点 Class Results 跳出的子页）→ 先 goBack 逐级返回；
+    /// 无历史才退出班级页（横屏先恢复竖屏）
+    private func handleBack() {
+        webNavState.goBackOrDismiss {
+            if orientationLock.landscapeOnly {
+                setInterfaceOrientation(false)
+            }
+            dismiss()
+        }
+    }
 
     /// 可见 tab：教师端多一个 Gradebook（学生端 6 项、教师端 7 项）
     private var visibleTabs: [ClassTab] {
@@ -64,24 +78,24 @@ struct ClassCourseView: View {
                     }
                 case .attendance:
                     if isTeacher {
-                        TeacherAttendanceTabView(classId: klass.id)
+                        TeacherAttendanceTabView(classId: klass.id, navigationState: webNavState)
                     } else {
-                        AttendanceTabView(classId: klass.id)
+                        AttendanceTabView(classId: klass.id, navigationState: webNavState)
                     }
                 case .assignments:
                     if isTeacher {
-                        TeacherAssignmentsTabView(classId: klass.id)
+                        TeacherAssignmentsTabView(classId: klass.id, navigationState: webNavState)
                     } else {
                         AssignmentsTabView(classId: klass.id)
                     }
                 case .assessments:
                     if isTeacher {
-                        TeacherAssessmentsTabView(classId: klass.id)
+                        TeacherAssessmentsTabView(classId: klass.id, navigationState: webNavState)
                     } else {
-                        AssessmentsTabView(classId: klass.id)
+                        AssessmentsTabView(classId: klass.id, navigationState: webNavState)
                     }
                 case .gradebook:
-                    TeacherGradebookTabView(classId: klass.id)
+                    TeacherGradebookTabView(classId: klass.id, navigationState: webNavState)
                 case .classInfo:
                     ClassInfoTabView(classId: klass.id)
                 }
@@ -91,6 +105,21 @@ struct ClassCourseView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle(klass.name)
         .navigationBarTitleDisplayMode(.inline)
+        // 竖屏也改自定义返回按钮：WebView 子 tab 内跳转后先 goBack 再退出
+        // （系统返回按钮无法拦截 NavigationStack pop）
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    handleBack()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                }
+                .accessibilityIdentifier("class.back")
+            }
+        }
         // 横屏隐藏系统导航栏（大标题+返回按钮条），由 compactTopBar 的返回按钮接管；
         // 横屏同时隐藏底部 tab bar，显示区域更大
         .toolbar(orientationLock.landscapeOnly ? .hidden : .visible, for: .navigationBar)
@@ -131,15 +160,12 @@ struct ClassCourseView: View {
 
     /// 横屏紧凑顶栏：返回按钮与胶囊 tab 合并一行（系统导航栏已隐藏，
     /// 大标题不再显示，竖向空间让给内容）。
-    /// 横屏下点返回不直接退出：先恢复竖屏（再点系统返回才真正返回）
+    /// 返回动作统一走 handleBack（WebView 有历史先 goBack；
+    /// 无历史恢复竖屏再退出）
     private var compactTopBar: some View {
         HStack(spacing: 10) {
             Button {
-                if orientationLock.landscapeOnly {
-                    setInterfaceOrientation(false)
-                } else {
-                    dismiss()
-                }
+                handleBack()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .semibold))

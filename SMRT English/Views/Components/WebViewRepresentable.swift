@@ -20,6 +20,30 @@
 import SwiftUI
 import WebKit
 
+/// WebView 内部浏览历史返回控制（ObservableObject 供页面返回按钮订阅）：
+/// WebView 有内部跳转历史时返回按钮先 goBack 逐级返回，无历史才退出页面。
+/// canGoBack 由 WebViewRepresentable 的导航代理在 didCommit/didFinish 更新；
+/// WebView 销毁（dismantleUIView）时 reset，避免残留状态误触发 goBack。
+final class WebViewNavigationState: ObservableObject {
+    @Published var canGoBack = false
+    fileprivate weak var webView: WKWebView?
+
+    /// 返回按钮动作：有内部历史先 goBack（并同步按钮态），否则执行退出闭包
+    func goBackOrDismiss(dismiss: () -> Void) {
+        if let webView, webView.canGoBack {
+            webView.goBack()
+            canGoBack = webView.canGoBack
+        } else {
+            dismiss()
+        }
+    }
+
+    func reset() {
+        canGoBack = false
+        webView = nil
+    }
+}
+
 struct WebViewRepresentable: UIViewRepresentable {
     let url: URL
     /// 是否同步登录 cookie（需要登录态的页面传 true）
@@ -47,6 +71,9 @@ struct WebViewRepresentable: UIViewRepresentable {
     /// 1:1 渲染在手机上偏大，切宽视口时用 initial-scale/minimum-scale=该值
     /// 整体等比缩小（如 0.75 → 992 内容缩至 744pt 宽，可见列更多、字号适中）
     var viewportScale: CGFloat? = nil
+    /// WebView 内部浏览历史返回控制：传入后页面返回按钮可先 goBack
+    /// （WebView 内跳转后逐级返回上一页），无历史再退出页面
+    var navigationState: WebViewNavigationState? = nil
     /// 页面加载完成后执行的 JS（documentEnd 注入主框架，仅首次导航触发；
     /// 用于自动触发页面交互，如弹出官网视频播放器）
     var pageLoadJS: String? = nil
@@ -242,11 +269,22 @@ struct WebViewRepresentable: UIViewRepresentable {
         """
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKNavigationDelegate {
         /// 当前已加载/正在加载的 URL（用于判断 SwiftUI 重绘是否伴随 URL 变化）
         var currentURL: URL?
         /// WKUIDelegate 需弱引用持有者，由 Coordinator 持有保证生命周期
         let dialogDelegate = DialogDelegate()
+        /// 内部浏览历史返回控制（页面返回按钮先 goBack 用）
+        weak var navState: WebViewNavigationState?
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            // didCommit 时 back/forward list 已更新，canGoBack 即当前准确值
+            navState?.canGoBack = webView.canGoBack
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            navState?.canGoBack = webView.canGoBack
+        }
     }
 
     /// WKUIDelegate：把网页 JS 的 alert / confirm / prompt 桥接为原生弹窗。
@@ -381,6 +419,10 @@ struct WebViewRepresentable: UIViewRepresentable {
         // JS 对话框桥接：官网练习「Complete」提交走 confirm()，未实现 uiDelegate 时
         // WebKit 静默返回 false → 提交永远不执行（真机踩坑）
         webView.uiDelegate = context.coordinator.dialogDelegate
+        // 导航代理：跟踪 canGoBack 供页面返回按钮先 goBack 再退出
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.navState = navigationState
+        navigationState?.webView = webView
 
         context.coordinator.currentURL = url
         if syncCookies {
@@ -400,6 +442,13 @@ struct WebViewRepresentable: UIViewRepresentable {
         webView.load(URLRequest(url: url))
     }
 
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        // WebView 销毁（push 出去/tab 切走）时清掉返回状态，
+        // 避免外层返回按钮拿到残留的 canGoBack 误 goBack
+        coordinator.navState?.reset()
+        coordinator.navState = nil
+    }
+
     /// 把 HTTPCookieStorage 里站点的 cookie 写入 WKHTTPCookieStore，
     /// 全部写完后再回调加载（setCookie 为异步操作）
     private func syncLoginCookies(into webView: WKWebView, completion: @escaping () -> Void) {
@@ -411,5 +460,37 @@ struct WebViewRepresentable: UIViewRepresentable {
             store.setCookie(cookie) { group.leave() }
         }
         group.notify(queue: .main, execute: completion)
+    }
+}
+
+/// WebView 承载页通用骨架（push 进来的独立页面用）：
+/// 返回按钮 = WebView 有内部浏览历史先 goBack 逐级返回，无历史才退出页面
+/// （系统返回按钮无法拦截 NavigationStack pop，故统一改自定义返回钮）。
+/// 用法：WebViewScreen(title:) { state in WebViewRepresentable(..., navigationState: state, ...) }
+struct WebViewScreen: View {
+    let title: String
+    @ViewBuilder let webView: (WebViewNavigationState) -> WebViewRepresentable
+
+    @StateObject private var navState = WebViewNavigationState()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        webView(navState)
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        navState.goBackOrDismiss { dismiss() }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                    .accessibilityIdentifier("web.back")
+                }
+            }
     }
 }

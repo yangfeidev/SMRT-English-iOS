@@ -102,4 +102,40 @@ final class TeacherDebugUITests: XCTestCase {
             }
         }
     }
+
+    /// WebView 内跳转后返回：应 goBack 回本页，而非整体退出班级页
+    func testAEWebViewInnerBack() throws {
+        let app = launchAndOpenClass()
+        let tab = app.buttons["class.tab.Assignments"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        tab.tap()
+        sleep(10)
+
+        // 点击屏内的作业标题链接（WebView 内部跳转到作业/课时子页）；
+        // Class Results 等操作按钮在 Actions 列（屏外，WebKit accessibility
+        // 不暴露离屏元素），不适合做内跳入口
+        let titleLink = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS '1-4 Dialogue A'"))
+            .firstMatch
+        if titleLink.waitForExistence(timeout: 8) {
+            titleLink.tap()
+            sleep(6)
+
+            // 点自定义返回钮：应 goBack 回 Assignments，班级页未退出
+            let back = app.buttons["class.back"].firstMatch
+            XCTAssertTrue(back.waitForExistence(timeout: 5), "返回钮未出现")
+            back.tap()
+            sleep(4)
+            XCTAssertTrue(app.buttons["class.tab.Assignments"].exists,
+                          "goBack 后仍在班级页")
+
+            // 再点返回：无更多历史，应退出班级页回到 Classes 列表
+            app.buttons["class.back"].firstMatch.tap()
+            sleep(4)
+            XCTAssertFalse(app.buttons["class.tab.Assignments"].exists,
+                           "无历史时返回应退出班级页")
+        } else {
+            print("UITEST no Class Results link (页面无可跳转行), skip")
+        }
+    }
 }

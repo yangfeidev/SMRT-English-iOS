@@ -270,9 +270,9 @@ struct WebPageScreen: View {
     let url: URL
 
     var body: some View {
-        WebViewRepresentable(url: url, syncCookies: true)
-            // 底部不忽略安全区：同课时详情页，网页 fixed 底栏（如 Join 弹窗按钮）不被 tabbar 遮挡
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+        WebViewScreen(title: title) { navState in
+            WebViewRepresentable(url: url, syncCookies: true, navigationState: navState)
+        }
+        // 底部不忽略安全区：同课时详情页，网页 fixed 底栏（如 Join 弹窗按钮）不被 tabbar 遮挡
     }
 }

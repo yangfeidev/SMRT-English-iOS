@@ -24,14 +24,14 @@ struct LessonDetailView: View {
     }
 
     var body: some View {
-        WebViewRepresentable(url: lessonURL,
-                             syncCookies: true,
-                             pageBackgroundColor: .white,
-                             hideSiteHeader: true)
-            // 底部不忽略安全区：练习弹窗的进度条/Complete 按钮条是网页内 fixed
-            // 定位，视口延伸到 tabbar 下面会被遮挡；止于 tabbar 上沿即可完整显示
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(lesson.title)
-            .navigationBarTitleDisplayMode(.inline)
+        WebViewScreen(title: lesson.title) { navState in
+            WebViewRepresentable(url: lessonURL,
+                                 syncCookies: true,
+                                 pageBackgroundColor: .white,
+                                 hideSiteHeader: true,
+                                 navigationState: navState)
+        }
+        // 底部不忽略安全区：练习弹窗的进度条/Complete 按钮条是网页内 fixed
+        // 定位，视口延伸到 tabbar 下面会被遮挡；止于 tabbar 上沿即可完整显示
     }
 }
