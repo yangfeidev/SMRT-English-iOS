@@ -113,7 +113,7 @@ struct TeacherAssignmentsTabView: View {
                            extraCSS: WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 992,
-                           viewportScale: 0.85,
+                           viewportScale: 0.9,
                            navigationState: navigationState)
             .modifier(TeacherWideTableModifier())
     }
@@ -131,7 +131,7 @@ struct TeacherAttendanceTabView: View {
                                + WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 768,
-                           viewportScale: 0.85,
+                           viewportScale: 0.9,
                            navigationState: navigationState)
             .modifier(TeacherWideTableModifier())
     }
