@@ -34,7 +34,7 @@ private struct TeacherPageWebView: View {
     var fixedViewportWidth: CGFloat? = nil
     /// 视口收缩下限（见 WebViewRepresentable.viewportShrinkLowerBound 注释）
     var viewportShrinkLowerBound: CGFloat? = nil
-    /// 宽视口显示缩放（0.75 = 内容整体缩小到 75%，手机观感更合适）
+    /// 宽视口显示缩放（0.8 = 内容整体缩小到 80%，手机观感更合适）
     var viewportScale: CGFloat? = nil
 
     var body: some View {
@@ -105,7 +105,7 @@ struct TeacherAssignmentsTabView: View {
                            extraCSS: WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 992,
-                           viewportScale: 0.75)
+                           viewportScale: 0.8)
             .modifier(TeacherWideTableModifier())
     }
 }
@@ -121,7 +121,7 @@ struct TeacherAttendanceTabView: View {
                                + WebViewRepresentable.teacherTableShrinkCSS,
                            fixedViewportWidth: 1024,
                            viewportShrinkLowerBound: 768,
-                           viewportScale: 0.75)
+                           viewportScale: 0.8)
             .modifier(TeacherWideTableModifier())
     }
 }
