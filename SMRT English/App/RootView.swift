@@ -142,4 +142,6 @@ extension Notification.Name {
     static let smrtSessionInvalid = Notification.Name("smrt.session.invalid")
     /// 登录恢复（全屏登录页登录成功），需要登录态的页面监听刷新
     static let smrtSessionRestored = Notification.Name("smrt.session.restored")
+    /// 账号角色判定完成/变化（教师号/学生号），Me 区块徽标监听刷新
+    static let smrtAccountRoleDidChange = Notification.Name("smrt.account.role.didChange")
 }

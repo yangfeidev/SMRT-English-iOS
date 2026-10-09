@@ -636,6 +636,13 @@ extension SMRTHTMLParser {
         html.contains("gradebook")
     }
 
+    /// classes 列表页是否学生号（学生号班级卡带「我」角标——"我在此班"；
+    /// 教师号管理多个班无此角标，实测教师 classes 页全文无「我」字）。
+    /// 用于登录后区分账号角色；班级 course 页的 gradebook 链接做硬校正。
+    static func classesPageIndicatesStudent(_ html: String) -> Bool {
+        html.contains(">我<")
+    }
+
     /// 教师端 Class List 成员行（表格：头像 / 姓名 / Id / Email；
     /// Current 与 Removed 两个 ?tab= 页同构，解析函数共用）
     static func parseTeacherClassList(html: String) -> [TeacherClassListMember] {

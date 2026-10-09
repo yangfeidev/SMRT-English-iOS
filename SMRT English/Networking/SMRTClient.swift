@@ -63,6 +63,23 @@ final class SMRTClient {
     /// PHPSESSID 是会话 cookie（无过期时间），HTTPCookieStorage 不持久化，
     /// App 重启即丢 → 手动序列化到 UserDefaults，启动时恢复。
     private static let cookieKey = "smrt.persisted.cookies"
+    /// 账号角色缓存 key（教师号/学生号，见 updateAccountRole）
+    private static let roleKey = "smrt.account.isTeacher"
+
+    /// 当前账号是否教师号（持久化缓存；classes 页「我」角标判定 +
+    /// 班级 course 页 gradebook 链接校正）。未知时默认 false（学生）。
+    var isTeacherAccount: Bool {
+        UserDefaults.standard.bool(forKey: Self.roleKey)
+    }
+
+    /// 更新账号角色并广播（值不变时不发）
+    private func updateAccountRole(isTeacher: Bool) {
+        guard isTeacherAccount != isTeacher else { return }
+        UserDefaults.standard.set(isTeacher, forKey: Self.roleKey)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .smrtAccountRoleDidChange, object: nil)
+        }
+    }
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -230,6 +247,7 @@ final class SMRTClient {
             cookies.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
         }
         UserDefaults.standard.removeObject(forKey: Self.cookieKey)
+        UserDefaults.standard.removeObject(forKey: Self.roleKey)
         UserDefaults.standard.removeObject(forKey: "smrt.account.email")
         UserDefaults.standard.removeObject(forKey: "smrt.account.displayName")
     }
@@ -375,6 +393,8 @@ final class SMRTClient {
             let html = try await getHTML(path: "/sunshine/classes",
                                          requirePathContains: "/sunshine/classes")
             if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
+            // 顺手判定账号角色：学生号班级卡带「我」角标，教师号没有（零额外请求）
+            updateAccountRole(isTeacher: !SMRTHTMLParser.classesPageIndicatesStudent(html))
             return SMRTHTMLParser.parseMyClasses(html: html)
         }
     }
@@ -385,11 +405,15 @@ final class SMRTClient {
             let html = try await getHTML(path: "/sunshine/class/\(classId)/course/",
                                          requirePathContains: "/sunshine/class/")
             if isLoggedOutHTML(html) { throw SMRTError.notLoggedIn }
-            return try await Task.detached(priority: .userInitiated) {
+            let course = try await Task.detached(priority: .userInitiated) {
                 let course = SMRTHTMLParser.parseClassCourse(html: html)
                 guard !course.units.isEmpty else { throw SMRTError.parseFailed }
                 return course
             }.value
+            // 角色硬校正：班级页侧栏 gradebook 链接是教师铁证
+            // （classes 页「我」角标判定兜底，打开班级后以此为准）
+            updateAccountRole(isTeacher: course.isTeacher)
+            return course
         }
     }
 

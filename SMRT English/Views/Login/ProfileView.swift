@@ -17,6 +17,8 @@ struct ProfileSection: View {
     let sessionValid: Bool
 
     @State private var showLogoutConfirm = false
+    /// 账号角色（classes 页「我」角标判定，广播后刷新）
+    @State private var isTeacher = SMRTClient.shared.isTeacherAccount
 
     private var email: String {
         SMRTClient.shared.savedEmail ?? "已登录"
@@ -41,6 +43,10 @@ struct ProfileSection: View {
             Text("SMRT English v\(Self.appVersion) · 个人学习使用")
                 .font(.caption2)
                 .foregroundStyle(Theme.textSecondary)
+        }
+        .onAppear { isTeacher = SMRTClient.shared.isTeacherAccount }
+        .onReceive(NotificationCenter.default.publisher(for: .smrtAccountRoleDidChange)) { _ in
+            isTeacher = SMRTClient.shared.isTeacherAccount
         }
         .confirmationDialog("确定退出登录？", isPresented: $showLogoutConfirm, titleVisibility: .visible) {
             Button("退出登录", role: .destructive) {
@@ -68,9 +74,21 @@ struct ProfileSection: View {
                     .foregroundStyle(.white)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(email)
-                    .font(.headline)
-                    .foregroundStyle(Theme.textPrimary)
+                HStack(spacing: 6) {
+                    Text(email)
+                        .font(.headline)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    // 角色徽标：classes 页「我」角标判定（学生）/侧栏 Gradebook
+                    // 链接判定（教师），教师橙/学生灰一眼可辨
+                    Text(isTeacher ? "教师" : "学生")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(isTeacher ? Color.orange : Theme.textSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background((isTeacher ? Color.orange : Theme.textSecondary).opacity(0.15))
+                        .clipShape(Capsule())
+                }
                 Text("sunshine 校区")
                     .font(.caption)
                     .foregroundStyle(Theme.textSecondary)
