@@ -44,6 +44,64 @@ final class WebViewNavigationState: ObservableObject {
     }
 }
 
+/// 宽表格页滚动轴锁：拖动开始时判定主导轴（水平/垂直），本次拖动只允许
+/// 该轴滚动——避免斜向拖动时 x/y 同时滚产生"360 度转圈"的失控感。
+/// WebKit 内部持有 webView.scrollView.delegate，直接替换会丢其内部逻辑
+/// （键盘避让等），故用转发 delegate：只拦截拖动相关回调做轴锁，
+/// 其余方法经 forwardingTarget 转发给原 delegate。
+final class AxisLockScrollDelegate: NSObject, UIScrollViewDelegate {
+    weak var originalDelegate: UIScrollViewDelegate?
+
+    private enum Axis { case horizontal, vertical }
+    private var dragStartOffset: CGPoint = .zero
+    private var lockedAxis: Axis?
+    private var lockedOffset: CGPoint = .zero
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || (originalDelegate?.responds(to: aSelector) ?? false)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        originalDelegate
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        dragStartOffset = scrollView.contentOffset
+        lockedAxis = nil
+        originalDelegate?.scrollViewWillBeginDragging?(scrollView)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView.isTracking, lockedAxis == nil {
+            let dx = scrollView.contentOffset.x - dragStartOffset.x
+            let dy = scrollView.contentOffset.y - dragStartOffset.y
+            // 拖动超过 6pt 后锁定主导轴（之后本次拖动不再变更）
+            if abs(dx) > 6, abs(dx) >= abs(dy) {
+                lockedAxis = .horizontal
+                lockedOffset = dragStartOffset
+            } else if abs(dy) > 6 {
+                lockedAxis = .vertical
+                lockedOffset = dragStartOffset
+            }
+        }
+        switch lockedAxis {
+        case .horizontal:
+            // 水平主导：钉住纵向（含边界回弹，只沿 x 弹）
+            scrollView.contentOffset.y = lockedOffset.y
+        case .vertical:
+            scrollView.contentOffset.x = lockedOffset.x
+        case nil:
+            break
+        }
+        originalDelegate?.scrollViewDidScroll?(scrollView)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        lockedAxis = nil
+        originalDelegate?.scrollViewDidEndDragging?(scrollView, willDecelerate: decelerate)
+    }
+}
+
 struct WebViewRepresentable: UIViewRepresentable {
     let url: URL
     /// 是否同步登录 cookie（需要登录态的页面传 true）
@@ -276,6 +334,8 @@ struct WebViewRepresentable: UIViewRepresentable {
         let dialogDelegate = DialogDelegate()
         /// 内部浏览历史返回控制（页面返回按钮先 goBack 用）
         weak var navState: WebViewNavigationState?
+        /// 滚动轴锁 delegate（必须保活——scrollView.delegate 是弱引用）
+        var axisLockDelegate: AxisLockScrollDelegate?
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             // didCommit 时 back/forward list 已更新，canGoBack 即当前准确值
@@ -415,6 +475,12 @@ struct WebViewRepresentable: UIViewRepresentable {
             // 固定视口下禁 WebKit 缩放适配：内容 1:1 渲染，靠 scrollView 左右滚动
             webView.scrollView.minimumZoomScale = 1
             webView.scrollView.maximumZoomScale = 1
+            // 滚动轴锁：宽内容页禁止斜向拖动 x/y 同滚（"360 度转圈"），
+            // 每次拖动只允许主导轴（横向或纵向）
+            let axisLock = AxisLockScrollDelegate()
+            axisLock.originalDelegate = webView.scrollView.delegate
+            webView.scrollView.delegate = axisLock
+            context.coordinator.axisLockDelegate = axisLock
         }
         // JS 对话框桥接：官网练习「Complete」提交走 confirm()，未实现 uiDelegate 时
         // WebKit 静默返回 false → 提交永远不执行（真机踩坑）
