@@ -38,8 +38,12 @@ final class WebViewNavigationState: ObservableObject {
         }
     }
 
+    /// 销毁清理：只清 webView 引用（非 @Published，视图更新阶段调用也安全）。
+    /// canGoBack 残留无妨——goBackOrDismiss 以 webView 是否存在为准
+    /// （webView 释放后自动走退出分支），新 WebView 加载后 didFinish 会刷新它，
+    /// 若在视图更新阶段改这个 @Published 会触发
+    /// "Publishing changes from within view updates" 警告
     func reset() {
-        canGoBack = false
         webView = nil
     }
 }
