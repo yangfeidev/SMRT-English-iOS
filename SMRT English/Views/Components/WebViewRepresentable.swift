@@ -514,8 +514,13 @@ struct WebViewRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         // WebView 销毁（push 出去/tab 切走）时清掉返回状态，
-        // 避免外层返回按钮拿到残留的 canGoBack 误 goBack
-        coordinator.navState?.reset()
+        // 避免外层返回按钮拿到残留的 canGoBack 误 goBack。
+        // dismantle 发生在 SwiftUI 视图更新阶段，直接改 @Published 会触发
+        // "Publishing changes from within view updates" 警告 → 挪到下一轮 runloop
+        let navState = coordinator.navState
+        DispatchQueue.main.async {
+            navState?.reset()
+        }
         coordinator.navState = nil
     }
 
