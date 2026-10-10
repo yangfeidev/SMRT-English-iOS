@@ -204,6 +204,12 @@ struct WebViewRepresentable: UIViewRepresentable {
     /// 而不是退出班级页。开启后把「同 path、仅 ?tab= 不同」的导航改写为
     /// location.replace（替换当前历史项），返回键即直接退出本页。
     var collapseTabHistory: Bool = false
+    /// 弹窗手机适配（modalMobileCSS + modalRelocateJS），默认开启：
+    /// 官网每个班级页的 <footer> 都藏了 #confirmModal/#alertModal（删除
+    /// 确认/提示框），且 Bootstrap .modal 固定 600px + 桌面多列栅格在手机端
+    /// 宽视口（~400px）溢出。默认开启避免新增 WebView 页面漏配；
+    /// 纯展示页（无弹窗交互）注入亦无副作用。
+    var adaptModals: Bool = true
     /// 独立非持久存储（游客态/隐私隔离用）
     var isolatedStorage: Bool = false
 
@@ -348,6 +354,47 @@ struct WebViewRepresentable: UIViewRepresentable {
         ev.preventDefault();
         location.replace(a.href);
       }, true);
+    })();
+    """
+
+    /// 弹窗（Bootstrap .modal）手机适配：官网 .modal-dialog 固定 600px
+    /// （无 max-width 约束），宽视口手机端 CSS 视口只有 ~400px，弹窗溢出
+    /// 200px 且 .modal-body 桌面多列栅格横向撑爆。
+    ///
+    /// 真机实测背景（Android 侧，教师 Assignments「+ 布置作业」）：
+    /// dialog w=600 / viewport w=400 / overflow:visible，
+    /// Start Date 按钮与提示文字被截断。
+    ///
+    /// 与 Android WebViewHelper.MODAL_MOBILE_CSS 保持一致。
+    static let modalMobileCSS = """
+    .modal .modal-dialog{width:calc(100% - 16px) !important;max-width:600px !important;margin:8px auto !important;}
+    .modal .modal-content{max-height:calc(100vh - 32px) !important;overflow-y:auto !important;-webkit-overflow-scrolling:touch !important;}
+    .modal .modal-body{padding:12px !important;}
+    .modal .modal-body .row > [class*='col-']{width:100% !important;padding-left:0 !important;padding-right:0 !important;}
+    .modal .modal-footer{padding:8px 12px !important;}
+    .modal .modal-footer .btn{margin:4px 0 4px 8px !important;}
+    """
+
+    /// 官网隐藏弹窗迁移：站点把 #confirmModal（删除确认）/ #alertModal 放在
+    /// `<footer>` 里，而 footer 被站点保持为不渲染（computed display:none）。
+    /// Bootstrap .modal 是 position:fixed，其包含块被 0 尺寸的 footer 接管，
+    /// 弹出时整体 0x0 —— 真机实测点删除 X 后背景变暗但弹窗不可见
+    /// （modal w=0，No/Yes 按钮 w=0），强制 footer display:block 无效；
+    /// 把 modal 搬到 body 直下立即恢复正常渲染（400x739）。
+    ///
+    /// 官网每个班级页 footer 都藏这两个 modal（Attendance 实测同样存在）。
+    /// 与 Android WebViewHelper.MODAL_RELOCATE_JS 保持一致。
+    static let modalRelocateJS = """
+    (function() {
+      function relocate() {
+        var f = document.querySelector('footer');
+        if (!f) { return; }
+        f.querySelectorAll('.modal').forEach(function(m) { document.body.appendChild(m); });
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', relocate);
+      } else { relocate(); }
+      window.addEventListener('load', relocate);
     })();
     """
 
@@ -562,6 +609,20 @@ struct WebViewRepresentable: UIViewRepresentable {
         if hideSiteHeader {
             config.userContentController.addUserScript(
                 WKUserScript(source: Self.hideHeaderScript(extraCSS: extraCSS),
+                             injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true))
+        }
+        if adaptModals {
+            // 弹窗适配 CSS：与 extraCss 同一注入通道（hideHeaderScript 的
+            // style-append 机制），documentStart 生效、无 600px 首帧闪现
+            config.userContentController.addUserScript(
+                WKUserScript(source: Self.hideHeaderScript(extraCSS: Self.modalMobileCSS),
+                             injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true))
+            // footer 隐藏弹窗迁移：documentStart 注册，DOMContentLoaded/load
+            // 双时机执行（对齐 Android WebViewHelper.MODAL_RELOCATE_JS）
+            config.userContentController.addUserScript(
+                WKUserScript(source: Self.modalRelocateJS,
                              injectionTime: .atDocumentStart,
                              forMainFrameOnly: true))
         }
