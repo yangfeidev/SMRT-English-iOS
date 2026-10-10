@@ -204,11 +204,12 @@ struct WebViewRepresentable: UIViewRepresentable {
     /// 而不是退出班级页。开启后把「同 path、仅 ?tab= 不同」的导航改写为
     /// location.replace（替换当前历史项），返回键即直接退出本页。
     var collapseTabHistory: Bool = false
-    /// 弹窗手机适配（modalMobileCSS + modalRelocateJS），默认开启：
-    /// 官网每个班级页的 <footer> 都藏了 #confirmModal/#alertModal（删除
-    /// 确认/提示框），且 Bootstrap .modal 固定 600px + 桌面多列栅格在手机端
-    /// 宽视口（~400px）溢出。默认开启避免新增 WebView 页面漏配；
-    /// 纯展示页（无弹窗交互）注入亦无副作用。
+    /// 弹窗手机适配（modalMobileCSS + modalRelocateJS + modalVisualFitJS），
+    /// 默认开启：官网每个班级页的 <footer> 都藏了 #confirmModal/#alertModal
+    /// （删除确认/提示框），且 Bootstrap .modal 固定 600px + 桌面多列栅格在
+    /// 手机端溢出；宽视口页（fixedViewportWidth）还需 modalVisualFitJS 按
+    /// 可视视口贴合（CSS 百分比相对布局视口，手机屏幕上照样截断）。
+    /// 默认开启避免新增 WebView 页面漏配；纯展示页（无弹窗交互）注入亦无副作用。
     var adaptModals: Bool = true
     /// 独立非持久存储（游客态/隐私隔离用）
     var isolatedStorage: Bool = false
@@ -366,6 +367,12 @@ struct WebViewRepresentable: UIViewRepresentable {
     /// Start Date 按钮与提示文字被截断。
     ///
     /// 与 Android WebViewHelper.MODAL_MOBILE_CSS 保持一致。
+    ///
+    /// 注意：此 CSS 里的百分比相对**布局视口**。宽视口页（Assignments/
+    /// Attendance 的 fixedViewportWidth 992~1024）上 calc(100% - 16px) 会
+    /// 算出 ~976px（再被 max-width 压到 600px），弹窗按 992 布局视口居中——
+    /// 手机竖屏可视区只有 ~433 CSS px，600px 弹窗照样截断。可视区贴合由
+    /// modalVisualFitJS 按 visualViewport 动态修正（见其注释）。
     static let modalMobileCSS = """
     .modal .modal-dialog{width:calc(100% - 16px) !important;max-width:600px !important;margin:8px auto !important;}
     .modal .modal-content{max-height:calc(100vh - 32px) !important;overflow-y:auto !important;-webkit-overflow-scrolling:touch !important;}
@@ -395,6 +402,89 @@ struct WebViewRepresentable: UIViewRepresentable {
         document.addEventListener('DOMContentLoaded', relocate);
       } else { relocate(); }
       window.addEventListener('load', relocate);
+    })();
+    """
+
+    /// 弹窗可视区贴合（宽视口页的关键补丁）：教师 Assignments/Attendance 用
+    /// fixedViewportWidth 把布局视口拉到 992~1024（宽表格需要），此时
+    /// modalMobileCSS 的 calc(100% - 16px) 相对**布局视口**求解——弹窗被
+    /// max-width 压到 600px 后按 992 居中（左边缘 196px），而手机竖屏
+    /// 缩放 0.9 后可视区只有 ~433 CSS px，600px 弹窗照样被屏幕截断
+    /// （Android 真机验收时视口恰好回落 ~400 未暴露此问题；iOS 宽视口
+    /// 稳定生效即踩中，模拟器/真机复现：布置作业弹窗右侧被切）。
+    ///
+    /// 处理：弹窗显示时按 **可视视口（window.visualViewport）** 重设——
+    /// 宽度 = min(600, 可视宽-16)（窄视口页与 modalMobileCSS 数值完全一致，
+    /// 平板宽屏可视区 ≥600 时维持原 600px 上限），并用
+    /// 可视区左缘(pageLeft，兜底 scrollX) + 居中偏移 替换 margin:auto 的
+    /// 布局视口居中。全程 inline style + setProperty('important')——
+    /// 必须！modalMobileCSS 的同名规则带 !important，普通 inline 样式
+    /// 会被 !important 规则压过而不生效。
+    ///
+    /// 触发时机（多重兜底，防站点打开方式各异）：
+    /// - jQuery 存在 → show.bs.modal / shown.bs.modal（Bootstrap 3 事件）
+    /// - 捕获阶段 click 监听 [data-toggle=modal]（无 jQuery 事件时兜底）
+    /// - MutationObserver（body 子树 class/style 变化）——
+    ///   覆盖站点 JS 直接 .modal('show') / 动态建 modal 的路径
+    /// - visualViewport / window 的 resize + scroll → 弹窗开着时用户横向
+    ///   拖动宽表格，弹窗跟随可视区重新居中（position:fixed 相对布局视口，
+    ///   不跟随拖动会停在屏幕外）
+    ///
+    /// 注意：监听回调直接调 fit()，不走 requestAnimationFrame 去抖——
+    /// fit() 幂等且开销极小（querySelectorAll 几个节点 + 写相同值的
+    /// inline style 不产生新 mutation，自然收敛），而 rAF 在不可见/
+    /// 后台的 WebView 里会被暂停（harness 实测踩坑：rAF 版本拖动后不重排）。
+    static let modalVisualFitJS = """
+    (function() {
+      function fit() {
+        var v = window.visualViewport;
+        if (!v) { return; }
+        var vw = v.width;
+        var w = Math.min(600, Math.round(vw) - 16);
+        if (w < 280) { w = 280; }
+        var pl = (v.pageLeft > 0) ? v.pageLeft : (window.scrollX || 0);
+        var left = Math.round(pl + (vw - w) / 2);
+        document.querySelectorAll('.modal').forEach(function(m) {
+          if (!m.classList.contains('in') && !m.classList.contains('show')) { return; }
+          var d = m.querySelector('.modal-dialog');
+          if (!d) { return; }
+          d.style.setProperty('width', w + 'px', 'important');
+          d.style.setProperty('max-width', w + 'px', 'important');
+          d.style.setProperty('margin-left', left + 'px', 'important');
+          d.style.setProperty('margin-right', 'auto', 'important');
+        });
+      }
+      function schedule() {
+        fit();
+        [60, 200, 400, 700].forEach(function(t) { setTimeout(fit, t); });
+      }
+      function installHooks() {
+        if (window.jQuery) {
+          window.jQuery(document).on('show.bs.modal shown.bs.modal', schedule);
+        }
+        document.addEventListener('click', function(ev) {
+          var t = ev.target && ev.target.closest
+            ? ev.target.closest('[data-toggle="modal"],[data-bs-toggle="modal"]')
+            : null;
+          if (t) { schedule(); }
+        }, true);
+        var v = window.visualViewport;
+        if (v) {
+          v.addEventListener('resize', fit);
+          v.addEventListener('scroll', fit);
+        }
+        window.addEventListener('resize', fit);
+        window.addEventListener('scroll', fit);
+        if (window.MutationObserver && document.body) {
+          new MutationObserver(fit).observe(document.body, {
+            attributes: true, attributeFilter: ['class', 'style'],
+            childList: true, subtree: true
+          });
+        }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', installHooks);
+      } else { installHooks(); }
     })();
     """
 
@@ -623,6 +713,13 @@ struct WebViewRepresentable: UIViewRepresentable {
             // 双时机执行（对齐 Android WebViewHelper.MODAL_RELOCATE_JS）
             config.userContentController.addUserScript(
                 WKUserScript(source: Self.modalRelocateJS,
+                             injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true))
+            // 弹窗可视区贴合：宽视口页（布局视口 992~1024）上 modalMobileCSS
+            // 的百分比相对布局视口求解，600px 弹窗在手机竖屏 ~433 CSS px
+            // 可视区内照样截断——按 visualViewport 动态重设宽度并居中
+            config.userContentController.addUserScript(
+                WKUserScript(source: Self.modalVisualFitJS,
                              injectionTime: .atDocumentStart,
                              forMainFrameOnly: true))
         }
