@@ -81,7 +81,7 @@ struct ProfileSection: View {
                         .lineLimit(1)
                     // 角色徽标：classes 页「我」角标判定（学生）/侧栏 Gradebook
                     // 链接判定（教师），教师橙/学生蓝一眼可辨
-                    Text(isTeacher ? "教师" : "学生")
+                    Text(isTeacher ? "Teacher" : "Student")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(isTeacher ? Color.orange : Theme.accent)
                         .padding(.horizontal, 6)
